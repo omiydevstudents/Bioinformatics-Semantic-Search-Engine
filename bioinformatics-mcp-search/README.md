@@ -9,6 +9,8 @@ A powerful semantic search engine specifically designed for bioinformatics tools
 - **Comprehensive Data**: Integrated data from multiple bioinformatics repositories
 - **Intelligent Ranking**: Results ranked by relevance and similarity
 - **Biomedical-Specific**: Optimized for bioinformatics terminology and concepts
+- **Workflow Management**: Execute and manage bioinformatics workflows using Smithery
+- **Advanced Integration**: Seamless integration with MCP, EXA Search, and Smithery platforms
 
 ## Architecture
 
@@ -26,7 +28,25 @@ The project is structured into several key components:
 - Provides semantic search functionality
 - Supports category-based and similarity-based search
 
-### 3. Initialization Script (`src/scripts/initialize_store.py`)
+### 3. MCP Integration (`src/mcp/mcp_client.py`)
+- Connects to multiple MCP servers
+- Queries bioinformatics tool metadata
+- Enhances search results with up-to-date information
+- Supports workflow execution
+
+### 4. Smithery Integration (`src/smithery/smithery_client.py`)
+- Interacts with the Smithery platform
+- Executes bioinformatics workflows
+- Manages workflow templates
+- Enhances tool discovery with workflow context
+
+### 5. Tool Discovery Agent (`src/agents/tool_discovery_agent.py`)
+- Uses LangChain for intelligent workflow management
+- Integrates multiple search sources (MCP, EXA, ChromaDB, Smithery)
+- Provides natural language query processing
+- Generates comprehensive tool recommendations
+
+### 6. Initialization Script (`src/scripts/initialize_store.py`)
 - Sets up the semantic search store
 - Ingests repository data
 - Populates the vector database
@@ -76,6 +96,19 @@ rna_tools = await store.search_by_category("rna", "differential expression")
 similar = await store.get_similar_tools("BLAST")
 ```
 
+### Advanced Search with Workflows
+
+```python
+from src.agents.tool_discovery_agent import ToolDiscoveryAgent
+
+# Initialize agent
+agent = ToolDiscoveryAgent()
+
+# Discover tools with workflow execution
+result = await agent.discover_tools("I need to analyze RNA-seq data for differential expression")
+print(result["response"])
+```
+
 ### Search Results
 
 Search results include:
@@ -84,6 +117,7 @@ Search results include:
 - Source repository
 - Relevance score
 - Similar tools
+- Workflow recommendations (when applicable)
 
 ## Configuration
 
@@ -93,6 +127,11 @@ The following environment variables can be configured in `.env`:
 - `EMBEDDING_MODEL`: Model for generating embeddings
 - `REPOSITORY_DATA_DIR`: Directory for storing repository data
 - `LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR)
+- `SMITHERY_API_KEY`: API key for Smithery platform
+- `SMITHERY_API_URL`: Base URL for Smithery API
+- `BIO_MCP_URL`: URL for bioinformatics MCP server
+- `PUBMED_MCP_URL`: URL for PubMed MCP server
+- `BIO_CONTEXT_URL`: URL for BioContext MCP server
 
 ## Contributing
 
@@ -110,4 +149,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - Biopython and Bioconductor communities for their comprehensive tool repositories
 - ChromaDB for vector storage capabilities
-- Google Gemini for advanced language model capabilities 
+- Google Gemini for advanced language model capabilities
+- Smithery platform for workflow management
+- LangChain for intelligent agent capabilities 

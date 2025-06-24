@@ -106,17 +106,21 @@ class MCPClient:
                 return {
                     "message": "Empty response from server",
                     "status": "no_content",
-                    "tools": []
+                    "tools": [],
                 }
 
             # Check if this is an HTML page (likely a documentation page)
-            if content.startswith('<!DOCTYPE html>') or '<html' in content[:100]:
+            if content.startswith("<!DOCTYPE html>") or "<html" in content[:100]:
                 # Extract title and description from HTML
-                title_match = re.search(r'<title>(.*?)</title>', content, re.IGNORECASE)
-                desc_match = re.search(r'<meta name="description" content="(.*?)"', content, re.IGNORECASE)
+                title_match = re.search(r"<title>(.*?)</title>", content, re.IGNORECASE)
+                desc_match = re.search(
+                    r'<meta name="description" content="(.*?)"', content, re.IGNORECASE
+                )
 
                 title = title_match.group(1) if title_match else "Unknown Page"
-                description = desc_match.group(1) if desc_match else "No description available"
+                description = (
+                    desc_match.group(1) if desc_match else "No description available"
+                )
 
                 return {
                     "message": f"Received HTML page: {title}",
@@ -124,11 +128,11 @@ class MCPClient:
                     "status": "html_page",
                     "tools": [],
                     "note": "This appears to be a documentation page, not an active MCP server endpoint",
-                    "suggestion": "Check if this URL points to an actual MCP server API endpoint"
+                    "suggestion": "Check if this URL points to an actual MCP server API endpoint",
                 }
 
             # Try to find JSON-like content in the response
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            json_match = re.search(r"\{.*\}", content, re.DOTALL)
             if json_match:
                 try:
                     return json.loads(json_match.group())
@@ -136,11 +140,14 @@ class MCPClient:
                     pass
 
             # Try to find array-like content
-            array_match = re.search(r'\[.*\]', content, re.DOTALL)
+            array_match = re.search(r"\[.*\]", content, re.DOTALL)
             if array_match:
                 try:
                     parsed_array = json.loads(array_match.group())
-                    return {"tools": parsed_array, "message": "Parsed from array format"}
+                    return {
+                        "tools": parsed_array,
+                        "message": "Parsed from array format",
+                    }
                 except json.JSONDecodeError:
                     pass
 
@@ -149,7 +156,7 @@ class MCPClient:
                 "message": content[:500] + "..." if len(content) > 500 else content,
                 "status": "raw_text",
                 "tools": [],
-                "raw_response_length": len(content)
+                "raw_response_length": len(content),
             }
 
     async def close(self):

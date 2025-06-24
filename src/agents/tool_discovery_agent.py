@@ -1,5 +1,3 @@
-# src/agents/tool_discovery_agent.py
-
 from src.db.chroma_store import SemanticSearchStore
 from src.mcp.mcp_client import MCPClient
 from langchain.memory import ConversationBufferMemory

@@ -248,4 +248,3 @@ if __name__ == "__main__":
         print("\n⚠️  Integration failed. Check the error messages above.")
         sys.exit(1)
     
-    print("\n🤝 Ready for team integration with Piyush!")

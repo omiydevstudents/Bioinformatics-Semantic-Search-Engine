@@ -26,7 +26,7 @@ class SemanticSearchStore:
         
         # Initialize embeddings with biomedical model FIRST
         self.embeddings = HuggingFaceEmbeddings(
-            model_name="microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext",
+            model_name="NeuML/pubmedbert-base-embeddings",
             model_kwargs={'device': 'cpu'},
             encode_kwargs={'normalize_embeddings': True}
         )
@@ -103,14 +103,26 @@ class SemanticSearchStore:
                 k=n_results
             )
             
-            # Process LangChain results
+            # Process LangChain results with FIXED scoring
             tools = []
             for doc, score in results:
+                # FIX: Better distance to similarity conversion
+                # ChromaDB returns distance (lower is better), convert to similarity (higher is better)
+                if score <= 1.0:
+                    # Standard conversion for distances 0-1
+                    similarity_score = 1.0 - score
+                else:
+                    # For distances > 1, use exponential decay
+                    similarity_score = 1.0 / (1.0 + score)
+                
+                # Ensure score is between 0 and 1
+                similarity_score = max(0.0, min(1.0, similarity_score))
+                
                 tool_data = {
                     "name": doc.metadata.get("name", "Unknown"),
                     "category": doc.metadata.get("category", "Unknown"),
                     "content": doc.page_content,
-                    "relevance_score": float(1.0 - score),  # Convert distance to similarity
+                    "relevance_score": float(similarity_score),  # Now always positive
                     "source": doc.metadata.get("source", "unknown")
                 }
                 tools.append(tool_data)
@@ -123,21 +135,32 @@ class SemanticSearchStore:
             return await self._native_search_fallback(query, n_results)
 
     async def _native_search_fallback(self, query: str, n_results: int = 5) -> List[Dict]:
-        """Fallback to native ChromaDB search if LangChain fails."""
+        """Fallback to native ChromaDB search with FIXED scoring."""
         try:
             results = self.collection.query(
                 query_texts=[query],
                 n_results=n_results
             )
             
-            # Process results
+            # Process results with FIXED scoring
             tools = []
             for i in range(len(results['documents'][0])):
+                distance = results['distances'][0][i]
+                
+                # FIX: Better distance to similarity conversion
+                if distance <= 1.0:
+                    similarity_score = 1.0 - distance
+                else:
+                    similarity_score = 1.0 / (1.0 + distance)
+                
+                # Ensure score is between 0 and 1
+                similarity_score = max(0.0, min(1.0, similarity_score))
+                
                 tool_data = {
                     "name": results['metadatas'][0][i].get("name", "Unknown"),
                     "category": results['metadatas'][0][i].get("category", "Unknown"), 
                     "content": results['documents'][0][i],
-                    "relevance_score": 1.0 - results['distances'][0][i],  # Convert distance to similarity
+                    "relevance_score": float(similarity_score),  # Now always positive
                     "source": results['metadatas'][0][i].get("source", "unknown")
                 }
                 tools.append(tool_data)
@@ -179,14 +202,23 @@ class SemanticSearchStore:
                 filter={"category": category}
             )
             
-            # Process LangChain results
+            # Process LangChain results with FIXED scoring
             tools = []
             for doc, score in results:
+                # FIX: Better distance to similarity conversion
+                if score <= 1.0:
+                    similarity_score = 1.0 - score
+                else:
+                    similarity_score = 1.0 / (1.0 + score)
+                
+                # Ensure score is between 0 and 1
+                similarity_score = max(0.0, min(1.0, similarity_score))
+                
                 tool_data = {
                     "name": doc.metadata.get("name", "Unknown"),
                     "category": doc.metadata.get("category", "Unknown"),
                     "content": doc.page_content,
-                    "relevance_score": float(1.0 - score),
+                    "relevance_score": float(similarity_score),
                     "source": doc.metadata.get("source", "unknown")
                 }
                 tools.append(tool_data)
@@ -199,7 +231,7 @@ class SemanticSearchStore:
             return await self._native_category_search_fallback(category, query, n_results)
 
     async def _native_category_search_fallback(self, category: str, query: str, n_results: int = 5) -> List[Dict]:
-        """Fallback to native ChromaDB category search."""
+        """Fallback to native ChromaDB category search with FIXED scoring."""
         try:
             results = self.collection.query(
                 query_texts=[query],
@@ -207,14 +239,25 @@ class SemanticSearchStore:
                 where={"category": category}
             )
             
-            # Process results
+            # Process results with FIXED scoring
             tools = []
             for i in range(len(results['documents'][0])):
+                distance = results['distances'][0][i]
+                
+                # FIX: Better distance to similarity conversion
+                if distance <= 1.0:
+                    similarity_score = 1.0 - distance
+                else:
+                    similarity_score = 1.0 / (1.0 + distance)
+                
+                # Ensure score is between 0 and 1
+                similarity_score = max(0.0, min(1.0, similarity_score))
+                
                 tool_data = {
                     "name": results['metadatas'][0][i].get("name", "Unknown"),
                     "category": results['metadatas'][0][i].get("category", "Unknown"),
                     "content": results['documents'][0][i],
-                    "relevance_score": 1.0 - results['distances'][0][i],
+                    "relevance_score": float(similarity_score),
                     "source": results['metadatas'][0][i].get("source", "unknown")
                 }
                 tools.append(tool_data)
@@ -238,15 +281,24 @@ class SemanticSearchStore:
                 k=n_results + 1  # Get extra results to filter out the original tool
             )
             
-            # Process results and filter out the original tool
+            # Process results and filter out the original tool with FIXED scoring
             tools = []
             for doc, score in results:
                 if doc.metadata.get("name", "Unknown") != tool_name:  # Exclude original tool
+                    # FIX: Better distance to similarity conversion
+                    if score <= 1.0:
+                        similarity_score = 1.0 - score
+                    else:
+                        similarity_score = 1.0 / (1.0 + score)
+                    
+                    # Ensure score is between 0 and 1
+                    similarity_score = max(0.0, min(1.0, similarity_score))
+                    
                     tool_data = {
                         "name": doc.metadata.get("name", "Unknown"),
                         "category": doc.metadata.get("category", "Unknown"),
                         "content": doc.page_content,
-                        "similarity_score": float(1.0 - score),  # Convert distance to similarity
+                        "similarity_score": float(similarity_score),  # Now always positive
                         "source": doc.metadata.get("source", "unknown")
                     }
                     tools.append(tool_data)

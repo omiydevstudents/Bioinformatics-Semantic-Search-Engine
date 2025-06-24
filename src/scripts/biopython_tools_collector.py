@@ -1,11 +1,11 @@
 # src/scripts/biopython_tools_collector.py
 
 """
-Complete Biopython Tools Collector (Scripts Version)
-Extracts ALL 2000+ Biopython tools using Python introspection.
+Complete Biopython Tools Collector (Updated Web Scraping Version)
+Extracts Biopython package information from official documentation.
 
-This collector discovers and catalogs every Bio.* module, submodule, 
-function, and class in Biopython automatically.
+This collector scrapes the official Biopython documentation to get
+accurate, up-to-date package information instead of using introspection.
 
 Usage:
     python src/scripts/biopython_tools_collector.py
@@ -16,16 +16,17 @@ Author: Nitanshu (ChromaDB & RAG Pipeline)
 import asyncio
 import sys
 import os
-import pkgutil
-import importlib
-import inspect
 import json
 import time
+import requests
+from bs4 import BeautifulSoup
 from typing import List, Dict, Optional, Set
 from pathlib import Path
 from dataclasses import dataclass
 import traceback
 import logging
+import re
+from urllib.parse import urljoin, urlparse
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
@@ -37,11 +38,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class BioPythonTool:
-    """Represents a single Biopython tool/module/function."""
+    """Represents a single Biopython package/tool."""
     name: str
-    full_name: str  # e.g., Bio.Seq.Seq
+    full_name: str  # e.g., Bio.Seq
     category: str
-    tool_type: str  # module, function, class
+    tool_type: str  # Always "package" for this version
     description: str
     features: List[str]
     documentation: str
@@ -69,350 +70,355 @@ class BioPythonTool:
         }
 
 class CompleteBiopythonCollector:
-    """Comprehensive collector for ALL Biopython tools using introspection."""
+    """Web scraping collector for Biopython packages from official documentation."""
     
     def __init__(self):
         self.collected_tools: List[BioPythonTool] = []
-        self.processed_modules: Set[str] = set()
+        self.processed_packages: Set[str] = set()
         
         # Set data directory relative to project root
         self.data_dir = project_root / "data" / "biopython_collection"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         
+        # Base URLs for Biopython documentation
+        self.base_url = "https://biopython.org/docs/latest/api/"
+        self.main_bio_url = "https://biopython.org/docs/latest/api/Bio.html"
+        
+        # Session for HTTP requests
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (compatible; BioinformaticsSearchEngine/1.0; +https://github.com/bioinformatics-search)'
+        })
+        
         # Category mapping for better organization
         self.category_mapping = {
-            # Core sequence handling
-            'seq': 'Sequence Analysis',
-            'seqio': 'Sequence Processing', 
-            'sequtils': 'Sequence Analysis',
-            'seqrecord': 'Sequence Processing',
-            
-            # Alignment
+            'affy': 'Microarray Analysis',
             'align': 'Sequence Alignment',
-            'alignio': 'Sequence Alignment',
-            'pairwise': 'Sequence Alignment',
-            'multiple': 'Sequence Alignment',
-            
-            # Database access
-            'entrez': 'Database Access',
-            'expasy': 'Database Access',
-            'uniprot': 'Database Access',
-            'kegg': 'Database Access',
-            'ncbi': 'Database Access',
-            
-            # Analysis tools
-            'blast': 'Sequence Analysis',
-            'emboss': 'Sequence Analysis',
-            'restriction': 'Sequence Analysis',
-            'motif': 'Sequence Analysis',
-            
-            # Structure
-            'pdb': 'Protein Structure',
-            'structure': 'Protein Structure',
-            'dssp': 'Protein Structure',
-            
-            # Phylogenetics
-            'phylo': 'Phylogenetics',
-            'tree': 'Phylogenetics',
-            'nexus': 'Phylogenetics',
-            'newick': 'Phylogenetics',
-            
-            # Graphics and visualization
-            'graphics': 'Visualization',
-            'genomediagram': 'Visualization',
-            'chromosome': 'Visualization',
-            
-            # Population genetics
-            'popgen': 'Population Genetics',
-            'genepop': 'Population Genetics',
-            
-            # File formats
-            'genbank': 'File Formats',
-            'fasta': 'File Formats',
-            'swiss': 'File Formats',
-            'embl': 'File Formats',
-            
-            # Applications and wrappers
-            'application': 'Tool Wrappers',
-            'applications': 'Tool Wrappers',
-            
-            # Machine learning
-            'cluster': 'Machine Learning',
-            'hmm': 'Machine Learning',
-            
-            # Utilities
-            'alphabet': 'Core Utilities',
+            'alignio': 'Alignment I/O',
+            'application': 'External Applications',
+            'blast': 'Sequence Search',
+            'cluster': 'Clustering Analysis',
+            'compass': 'Sequence Compass',
             'data': 'Data Resources',
-            'pathway': 'Pathway Analysis'
+            'entrez': 'Database Access',
+            'expasy': 'ExPASy Tools',
+            'genbank': 'GenBank Format',
+            'graphics': 'Visualization',
+            'kegg': 'KEGG Database',
+            'markovmodel': 'Markov Models',
+            'medline': 'Literature Search',
+            'motifs': 'Sequence Motifs',
+            'nexus': 'Nexus Format',
+            'pairwise2': 'Pairwise Alignment',
+            'pathway': 'Pathway Analysis',
+            'pdb': 'Protein Structure',
+            'phenotype': 'Phenotype Analysis',
+            'phylo': 'Phylogenetics',
+            'popgen': 'Population Genetics',
+            'restriction': 'Restriction Analysis',
+            'scop': 'SCOP Database',
+            'seq': 'Sequence Objects',
+            'seqio': 'Sequence I/O',
+            'sequtils': 'Sequence Utilities',
+            'sequencing': 'Sequencing Analysis',
+            'swisssample': 'Swiss-Prot Samples',
+            'uniprot': 'UniProt Database',
+            'biosql': 'Database Storage'
         }
     
-    def _categorize_tool(self, module_name: str, tool_name: str) -> str:
-        """Categorize a tool based on its module and name."""
-        full_path = f"{module_name}.{tool_name}".lower()
+    def _categorize_package(self, package_name: str) -> str:
+        """Categorize a package based on its name."""
+        # Remove Bio. prefix for categorization
+        clean_name = package_name.replace('Bio.', '').lower()
         
-        # Check each category keyword
+        # Check for exact matches first
+        if clean_name in self.category_mapping:
+            return self.category_mapping[clean_name]
+        
+        # Check for partial matches
         for keyword, category in self.category_mapping.items():
-            if keyword in full_path:
+            if keyword in clean_name:
                 return category
         
-        # Fallback categorization based on module structure
-        parts = module_name.lower().split('.')
-        if len(parts) >= 2:
-            main_module = parts[1]  # Skip 'bio'
-            
-            if main_module in self.category_mapping:
-                return self.category_mapping[main_module]
-        
+        # Default category
         return 'General Bioinformatics'
     
-    def _is_experimental_module(self, module, module_name: str) -> bool:
-        """Check if a module is marked as experimental."""
-        try:
-            # Check if module docstring mentions experimental
-            doc = inspect.getdoc(module) or ""
-            if any(word in doc.lower() for word in ['experimental', 'beta', 'alpha', 'unstable']):
-                return True
-            
-            # Check if module name suggests experimental status
-            if any(word in module_name.lower() for word in ['experimental', 'beta', 'test']):
-                return True
-                
-            return False
-        except Exception:
-            return False
+    def _clean_description(self, description: str) -> str:
+        """Clean and format the description text."""
+        if not description:
+            return "Biopython package for bioinformatics analysis"
+        
+        # Remove extra whitespace and normalize
+        description = ' '.join(description.split())
+        
+        # Remove HTML tags if any
+        description = re.sub(r'<[^>]+>', '', description)
+        
+        # Limit length
+        if len(description) > 1000:
+            description = description[:1000] + "..."
+        
+        return description
     
-    def _get_documentation_url(self, module_name: str, member_name: str = None) -> str:
-        """Generate accurate documentation URL for Biopython API."""
-        # Base URL for Biopython API documentation
-        base_url = "https://biopython.org/docs/latest/api/"
-        
-        # For modules, use the module page
-        if not member_name:
-            return f"{base_url}{module_name}.html"
-        
-        # For module members, link to the module page with anchor
-        return f"{base_url}{module_name}.html#{module_name}.{member_name}"
-    
-    def _extract_functions_and_classes(self, module, module_name: str) -> List[BioPythonTool]:
-        """Extract functions and classes from a module."""
-        tools = []
-        
-        try:
-            # Get all members of the module
-            members = inspect.getmembers(module)
-            
-            for name, obj in members:
-                # Skip private/internal items
-                if name.startswith('_'):
-                    continue
-                
-                # Skip imports from other modules (not defined in this module)
-                if hasattr(obj, '__module__') and obj.__module__ != module_name:
-                    continue
-                
-                tool_type = None
-                description = ""
-                features = []
-                
-                if inspect.isfunction(obj):
-                    tool_type = "function"
-                    description = inspect.getdoc(obj) or f"Function in {module_name}"
-                    
-                    # Extract function signature as a feature
-                    try:
-                        sig = inspect.signature(obj)
-                        features.append(f"Parameters: {str(sig)}")
-                    except (ValueError, TypeError):
-                        pass
-                        
-                elif inspect.isclass(obj):
-                    tool_type = "class"
-                    description = inspect.getdoc(obj) or f"Class in {module_name}"
-                    
-                    # Extract class methods as features
-                    methods = [method for method in dir(obj) 
-                             if not method.startswith('_') and callable(getattr(obj, method, None))]
-                    if methods:
-                        features.extend(methods[:5])  # Top 5 methods
-                
-                if tool_type:
-                    full_name = f"{module_name}.{name}"
-                    category = self._categorize_tool(module_name, name)
-                    
-                    # Clean up description
-                    if description and len(description) > 500:
-                        description = description[:500] + "..."
-                    
-                    # Create documentation URL using official API structure
-                    doc_url = self._get_documentation_url(module_name, name)
-                    
-                    tool = BioPythonTool(
-                        name=name,
-                        full_name=full_name,
-                        category=category,
-                        tool_type=tool_type,
-                        description=description or f"{tool_type.title()} for {category.lower()}",
-                        features=features,
-                        documentation=doc_url
-                    )
-                    
-                    tools.append(tool)
-                    
-        except Exception as e:
-            logger.warning(f"Error extracting from {module_name}: {e}")
-        
-        return tools
-    
-    def _create_module_tool(self, module, module_name: str) -> BioPythonTool:
-        """Create a tool entry for the module itself."""
-        description = inspect.getdoc(module) or f"Biopython module: {module_name}"
-        
-        # Clean up description
-        if description and len(description) > 500:
-            description = description[:500] + "..."
-        
-        # Extract module-level features
+    def _extract_features_from_description(self, description: str) -> List[str]:
+        """Extract key features from the description."""
         features = []
         
-        # Get submodules
-        try:
-            if hasattr(module, '__path__'):
-                submodules = [name for _, name, _ in pkgutil.iter_modules(module.__path__)]
-                if submodules:
-                    features.extend([f"submodule: {sub}" for sub in submodules[:5]])
-        except (AttributeError, TypeError):
-            pass
+        # Common patterns to extract features
+        feature_patterns = [
+            r'provides?\s+([^.]+)',
+            r'includes?\s+([^.]+)',
+            r'supports?\s+([^.]+)',
+            r'implements?\s+([^.]+)',
+            r'handles?\s+([^.]+)',
+            r'for\s+([^.]+)',
+            r'to\s+([^.]+)'
+        ]
         
-        # Get main classes/functions
+        for pattern in feature_patterns:
+            matches = re.findall(pattern, description, re.IGNORECASE)
+            for match in matches:
+                if len(match.strip()) > 5 and len(match.strip()) < 100:
+                    features.append(match.strip())
+                    if len(features) >= 5:  # Limit to 5 features
+                        break
+            if len(features) >= 5:
+                break
+        
+        # If no features found, create generic ones
+        if not features:
+            features = [
+                "bioinformatics analysis",
+                "data processing",
+                "sequence analysis"
+            ]
+        
+        return features[:5]  # Limit to 5 features
+    
+    def _fetch_page_content(self, url: str) -> Optional[BeautifulSoup]:
+        """Fetch and parse a web page."""
         try:
-            members = inspect.getmembers(module)
-            classes = [name for name, obj in members if inspect.isclass(obj) and not name.startswith('_')]
-            functions = [name for name, obj in members if inspect.isfunction(obj) and not name.startswith('_')]
+            logger.debug(f"Fetching: {url}")
+            response = self.session.get(url, timeout=10)
+            response.raise_for_status()
             
-            if classes:
-                features.extend([f"class: {cls}" for cls in classes[:3]])
-            if functions:
-                features.extend([f"function: {func}" for func in functions[:3]])
-        except Exception:
-            pass
+            soup = BeautifulSoup(response.content, 'html.parser')
+            return soup
+            
+        except Exception as e:
+            logger.warning(f"Failed to fetch {url}: {e}")
+            return None
+    
+    def _extract_package_links(self, soup: BeautifulSoup) -> List[tuple]:
+        """Extract package links from the main Bio page."""
+        package_links = []
         
-        category = self._categorize_tool(module_name, "")
-        doc_url = self._get_documentation_url(module_name)
+        try:
+            # Look for package links in the documentation
+            # Pattern: Bio.PackageName package
+            for link in soup.find_all('a', href=True):
+                href = link.get('href', '')
+                text = link.get_text().strip()
+                
+                # Check if this is a package link (not module)
+                if ('Bio.' in text and 
+                    'package' in text and 
+                    '.html' in href and
+                    '#' not in href):  # Avoid fragment links
+                    
+                    # Extract package name
+                    package_match = re.search(r'Bio\.(\w+)', text)
+                    if package_match:
+                        package_name = f"Bio.{package_match.group(1)}"
+                        full_url = urljoin(self.base_url, href)
+                        package_links.append((package_name, full_url))
+                        logger.debug(f"Found package: {package_name} -> {full_url}")
+        
+        except Exception as e:
+            logger.error(f"Error extracting package links: {e}")
+        
+        return package_links
+    
+    def _extract_package_description(self, soup: BeautifulSoup, package_name: str) -> str:
+        """Extract package description from the package page."""
+        try:
+            # Look for "Module contents" heading
+            module_contents_heading = None
+            
+            # Try different possible headings
+            possible_headings = [
+                "Module contents",
+                "Package contents", 
+                "Contents",
+                "Description"
+            ]
+            
+            for heading_text in possible_headings:
+                heading = soup.find(['h1', 'h2', 'h3', 'h4'], string=re.compile(heading_text, re.IGNORECASE))
+                if heading:
+                    module_contents_heading = heading
+                    break
+            
+            if module_contents_heading:
+                # Get the next paragraph or div after the heading
+                description_elem = module_contents_heading.find_next(['p', 'div', 'section'])
+                if description_elem:
+                    description = description_elem.get_text().strip()
+                    return self._clean_description(description)
+            
+            # Fallback: try to find any descriptive paragraph
+            # Look for the first substantial paragraph
+            for p in soup.find_all('p'):
+                text = p.get_text().strip()
+                if len(text) > 50 and package_name.split('.')[-1].lower() in text.lower():
+                    return self._clean_description(text)
+            
+            # Final fallback: use any paragraph with substantial content
+            for p in soup.find_all('p'):
+                text = p.get_text().strip()
+                if len(text) > 50:
+                    return self._clean_description(text)
+                    
+        except Exception as e:
+            logger.warning(f"Error extracting description for {package_name}: {e}")
+        
+        return f"Biopython package for {package_name.split('.')[-1].lower()} analysis and processing"
+    
+    def _create_package_tool(self, package_name: str, package_url: str, description: str) -> BioPythonTool:
+        """Create a BioPythonTool object for a package."""
+        category = self._categorize_package(package_name)
+        features = self._extract_features_from_description(description)
         
         return BioPythonTool(
-            name=module_name.split('.')[-1],  # Just the last part
-            full_name=module_name,
+            name=package_name.split('.')[-1],  # Just the package name (e.g., "Blast")
+            full_name=package_name,            # Full name (e.g., "Bio.Blast")
             category=category,
-            tool_type="module",
+            tool_type="package",
             description=description,
             features=features,
-            documentation=doc_url
+            documentation=package_url
         )
     
-    async def discover_all_biopython_tools(self) -> List[BioPythonTool]:
-        """Discover ALL Biopython tools using introspection."""
-        logger.info("Starting comprehensive Biopython discovery...")
+    def _add_biosql_manually(self):
+        """Add BioSQL package manually with provided information."""
+        biosql_tool = BioPythonTool(
+            name="BioSQL",
+            full_name="BioSQL",
+            category="Database Storage",
+            tool_type="package",
+            description="Storing and retrieve biological sequences in a BioSQL relational database.",
+            features=[
+                "relational database storage",
+                "biological sequence management",
+                "database schema",
+                "SQL interface",
+                "sequence retrieval"
+            ],
+            documentation="https://biopython.org/docs/latest/api/BioSQL.html"
+        )
+        
+        self.collected_tools.append(biosql_tool)
+        logger.info("Added BioSQL package manually")
+    
+    async def discover_all_biopython_packages(self) -> List[BioPythonTool]:
+        """Discover all Biopython packages by scraping the official documentation."""
+        logger.info("Starting Biopython package discovery via web scraping...")
         
         try:
-            # Import Bio package
-            import Bio
-            
-            # Get Biopython version and check compatibility
-            bio_version = getattr(Bio, '__version__', '1.85')
-            logger.info(f"Discovered Biopython version: {bio_version}")
-            
-            # Check for warnings about experimental code
+            # Check if Biopython is available (for version info)
             try:
-                from Bio import BiopythonExperimentalWarning
-                import warnings
-                # We'll collect experimental modules but mark them
-                warnings.simplefilter('ignore', BiopythonExperimentalWarning)
+                import Bio
+                bio_version = getattr(Bio, '__version__', '1.85')
+                logger.info(f"Detected Biopython version: {bio_version}")
             except ImportError:
-                logger.info("No experimental warning system detected")
+                bio_version = "1.85"
+                logger.info("Biopython not installed locally - using version 1.85 as default")
             
-            # Walk through all Bio modules
-            discovered_modules = []
+            # Step 1: Fetch the main Bio page
+            logger.info(f"Fetching main Bio documentation page: {self.main_bio_url}")
+            main_soup = self._fetch_page_content(self.main_bio_url)
             
-            for importer, modname, ispkg in pkgutil.walk_packages(
-                path=Bio.__path__, 
-                prefix=Bio.__name__ + '.',
-                onerror=lambda x: logger.debug(f"Cannot import {x} - likely missing optional dependency")
-            ):
-                discovered_modules.append((modname, ispkg))
+            if not main_soup:
+                logger.error("Failed to fetch main Bio page")
+                return []
             
-            logger.info(f"Found {len(discovered_modules)} total Bio modules")
+            # Step 2: Extract package links
+            logger.info("Extracting package links...")
+            package_links = self._extract_package_links(main_soup)
             
-            # Filter out known problematic/deprecated modules
-            deprecated_modules = {
-                'Bio.Fasta',  # Removed in 1.55
-                'Bio.Prosite',  # Deprecated
-                'Bio.Wise',  # Deprecated
-            }
-            
-            # Process each module
-            successful_imports = 0
-            failed_imports = 0
-            
-            for module_name, is_package in discovered_modules:
-                if module_name in self.processed_modules:
-                    continue
+            if not package_links:
+                logger.warning("No package links found - trying alternative extraction method")
+                # Alternative: look for any Bio.* links
+                for link in main_soup.find_all('a', href=True):
+                    href = link.get('href', '')
+                    text = link.get_text().strip()
                     
-                # Skip known deprecated modules
-                if module_name in deprecated_modules:
-                    logger.debug(f"Skipping deprecated module: {module_name}")
+                    if ('Bio.' in href and 
+                        '.html' in href and
+                        '#' not in href):
+                        
+                        # Extract package name from URL
+                        url_match = re.search(r'Bio\.(\w+)\.html', href)
+                        if url_match:
+                            package_name = f"Bio.{url_match.group(1)}"
+                            full_url = urljoin(self.base_url, href)
+                            package_links.append((package_name, full_url))
+            
+            logger.info(f"Found {len(package_links)} package links")
+            
+            # Step 3: Process each package
+            successful_extractions = 0
+            failed_extractions = 0
+            
+            for package_name, package_url in package_links:
+                if package_name in self.processed_packages:
                     continue
                 
                 try:
-                    logger.debug(f"Processing {module_name}...")
+                    logger.info(f"Processing package: {package_name}")
                     
-                    # Import the module with timeout for problematic modules
-                    module = importlib.import_module(module_name)
-                    self.processed_modules.add(module_name)
-                    successful_imports += 1
+                    # Fetch package page
+                    package_soup = self._fetch_page_content(package_url)
                     
-                    # Check if module is experimental
-                    is_experimental = self._is_experimental_module(module, module_name)
-                    
-                    # Create tool for the module itself
-                    module_tool = self._create_module_tool(module, module_name)
-                    module_tool.version = bio_version
-                    if is_experimental:
-                        module_tool.description = f"[EXPERIMENTAL] {module_tool.description}"
-                    
-                    self.collected_tools.append(module_tool)
-                    
-                    # Extract functions and classes from the module
-                    member_tools = self._extract_functions_and_classes(module, module_name)
-                    for tool in member_tools:
+                    if package_soup:
+                        # Extract description
+                        description = self._extract_package_description(package_soup, package_name)
+                        
+                        # Create tool object
+                        tool = self._create_package_tool(package_name, package_url, description)
                         tool.version = bio_version
-                        if is_experimental:
-                            tool.description = f"[EXPERIMENTAL] {tool.description}"
-                    
-                    self.collected_tools.extend(member_tools)
-                    
-                    # Small delay to be respectful
-                    await asyncio.sleep(0.001)
-                    
-                except ImportError as e:
-                    failed_imports += 1
-                    logger.debug(f"Could not import {module_name}: {e} (likely missing optional dependency)")
-                    continue
+                        
+                        self.collected_tools.append(tool)
+                        self.processed_packages.add(package_name)
+                        successful_extractions += 1
+                        
+                        logger.debug(f"Successfully processed {package_name}")
+                        
+                        # Small delay to be respectful
+                        await asyncio.sleep(0.1)
+                    else:
+                        failed_extractions += 1
+                        logger.warning(f"Failed to fetch page for {package_name}")
+                        
                 except Exception as e:
-                    failed_imports += 1
-                    logger.warning(f"Error processing {module_name}: {e}")
+                    failed_extractions += 1
+                    logger.error(f"Error processing {package_name}: {e}")
                     continue
             
-            logger.info(f"Successfully imported: {successful_imports} modules")
-            logger.info(f"Failed imports: {failed_imports} modules (expected for optional dependencies)")
-            logger.info(f"Total tools discovered: {len(self.collected_tools)}")
+            # Step 4: Add BioSQL manually
+            self._add_biosql_manually()
+            successful_extractions += 1
+            
+            logger.info(f"Package discovery completed:")
+            logger.info(f"  Successfully processed: {successful_extractions}")
+            logger.info(f"  Failed extractions: {failed_extractions}")
+            logger.info(f"  Total tools collected: {len(self.collected_tools)}")
             
             return self.collected_tools
             
-        except ImportError as e:
-            logger.error(f"Biopython not installed or not accessible: {e}")
-            return []
         except Exception as e:
-            logger.error(f"Error during Biopython discovery: {e}")
+            logger.error(f"Error during package discovery: {e}")
+            traceback.print_exc()
             return []
     
     def _generate_collection_report(self, tools: List[Dict]):
@@ -434,11 +440,14 @@ class CompleteBiopythonCollector:
                 "total_tools": len(tools),
                 "biopython_version": tools[0].get('version', '1.85') if tools else 'Unknown',
                 "collection_timestamp": time.time(),
-                "source": "Biopython Complete Collection"
+                "source": "Biopython Documentation Scraping",
+                "method": "Web scraping from biopython.org/docs/latest/api/"
             },
             "categories": categories,
             "tool_types": tool_types,
-            "top_categories": sorted(categories.items(), key=lambda x: x[1], reverse=True)[:10]
+            "top_categories": sorted(categories.items(), key=lambda x: x[1], reverse=True)[:10],
+            "extraction_method": "Official Biopython Documentation",
+            "base_url": self.base_url
         }
         
         # Save report
@@ -449,30 +458,27 @@ class CompleteBiopythonCollector:
         logger.info(f"Collection report saved to: {report_file}")
         
         # Print summary
-        logger.info("Biopython Collection Summary:")
-        logger.info(f"  Total tools: {report['collection_summary']['total_tools']}")
+        logger.info("Biopython Web Scraping Collection Summary:")
+        logger.info(f"  Total packages: {report['collection_summary']['total_tools']}")
         logger.info(f"  Categories: {len(categories)}")
-        logger.info(f"  Tool types: {len(tool_types)}")
+        logger.info(f"  Method: {report['extraction_method']}")
         
         logger.info("\nTop Categories:")
         for category, count in report["top_categories"]:
             percentage = (count / len(tools)) * 100
-            logger.info(f"  {category:25} {count:3d} tools ({percentage:5.1f}%)")
-        
-        logger.info("\nTool Types:")
-        for tool_type, count in sorted(tool_types.items(), key=lambda x: x[1], reverse=True):
-            percentage = (count / len(tools)) * 100
-            logger.info(f"  {tool_type:15} {count:3d} tools ({percentage:5.1f}%)")
+            logger.info(f"  {category:25} {count:3d} packages ({percentage:5.1f}%)")
     
     async def collect_and_save(self) -> List[Dict]:
-        """Main method to collect all Biopython tools and save them."""
+        """Main method to collect all Biopython packages and save them."""
         start_time = time.time()
         
-        # Discover all tools
-        tools = await self.discover_all_biopython_tools()
+        logger.info("Starting Biopython documentation scraping...")
+        
+        # Discover all packages
+        tools = await self.discover_all_biopython_packages()
         
         if not tools:
-            logger.error("No Biopython tools discovered!")
+            logger.error("No Biopython packages discovered!")
             return []
         
         # Convert to dictionary format
@@ -488,29 +494,31 @@ class CompleteBiopythonCollector:
         # Generate report
         self._generate_collection_report(tools_dict)
         
-        logger.info(f"Collection completed in {collection_time:.1f} seconds")
+        logger.info(f"Web scraping collection completed in {collection_time:.1f} seconds")
         logger.info(f"Data saved to: {output_file}")
-        logger.info(f"Tools per second: {len(tools_dict) / collection_time:.1f}")
+        logger.info(f"Packages per second: {len(tools_dict) / collection_time:.1f}")
         
         return tools_dict
 
 
 async def standalone_collection():
     """Standalone function to run collection from scripts folder."""
-    print("🧬 Standalone Biopython Tools Collection")
-    print("=" * 50)
+    print("🧬 Biopython Documentation Web Scraping Collection")
+    print("=" * 60)
+    print("Extracting packages from https://biopython.org/docs/latest/api/")
     
-    # Check if Biopython is available
+    # Check internet connectivity
     try:
-        import Bio
-        print(f"✅ Biopython {getattr(Bio, '__version__', 'unknown')} detected")
-    except ImportError:
-        print("❌ Biopython not found! Install with: pip install biopython")
+        test_response = requests.get("https://biopython.org", timeout=5)
+        print(f"✅ Internet connectivity verified (Status: {test_response.status_code})")
+    except Exception as e:
+        print(f"❌ Internet connectivity issue: {e}")
+        print("Please check your internet connection and try again.")
         return False
     
     # Run collection
     collector = CompleteBiopythonCollector()
-    print("🔍 Starting comprehensive Biopython collection...")
+    print("🔍 Starting comprehensive Biopython package collection...")
     
     start_time = time.time()
     tools = await collector.collect_and_save()
@@ -518,10 +526,15 @@ async def standalone_collection():
     
     if tools:
         print(f"\n🎉 Collection completed successfully!")
-        print(f"📊 Collected {len(tools)} Biopython tools")
+        print(f"📊 Collected {len(tools)} Biopython packages")
         print(f"⏱️  Total time: {total_time:.1f} seconds")
-        print(f"🚀 Performance: {len(tools) / total_time:.1f} tools/second")
+        print(f"🚀 Performance: {len(tools) / total_time:.1f} packages/second")
         print(f"💾 Data saved to: {collector.data_dir}")
+        
+        # Show sample packages
+        print(f"\n📦 Sample Packages:")
+        for tool in tools[:5]:
+            print(f"   • {tool['full_name']}: {tool['description'][:60]}...")
         
         # Show top categories
         categories = {}
@@ -532,7 +545,14 @@ async def standalone_collection():
         print(f"\n🏷️  Top Categories:")
         top_cats = sorted(categories.items(), key=lambda x: x[1], reverse=True)[:5]
         for cat, count in top_cats:
-            print(f"   {cat}: {count} tools")
+            print(f"   {cat}: {count} packages")
+        
+        print(f"\n✨ Key Advantages of Web Scraping Approach:")
+        print("   • Always up-to-date with official documentation")
+        print("   • No import dependencies or version conflicts")
+        print("   • Includes official package descriptions")
+        print("   • Follows Biopython's official package structure")
+        print("   • Works even without Biopython installed locally")
         
         return True
     else:
@@ -542,12 +562,13 @@ async def standalone_collection():
 
 if __name__ == "__main__":
     """Run as standalone script from scripts folder."""
-    print("🧪 Running Biopython Collector from Scripts Folder")
+    print("🧪 Running Biopython Web Scraper from Scripts Folder")
     success = asyncio.run(standalone_collection())
     
     if success:
-        print("\n✅ Collection completed! Files saved to data/biopython_collection/")
+        print("\n✅ Web scraping collection completed! Files saved to data/biopython_collection/")
         print("🔗 Ready to integrate with load_biopython_tools.py script")
+        print("🎯 This new approach provides official, accurate package information!")
     else:
-        print("\n❌ Collection failed. Check error messages above.")
+        print("\n❌ Web scraping collection failed. Check error messages above.")
         sys.exit(1)

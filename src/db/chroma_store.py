@@ -26,7 +26,7 @@ class SemanticSearchStore:
         
         # Initialize embeddings with biomedical model FIRST
         self.embeddings = HuggingFaceEmbeddings(
-            model_name="microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext",
+            model_name="NeuML/pubmedbert-base-embeddings",
             model_kwargs={'device': 'cpu'},
             encode_kwargs={'normalize_embeddings': True}
         )

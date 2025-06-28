@@ -242,47 +242,29 @@ class CompleteBiopythonCollector:
     def _extract_package_description(self, soup: BeautifulSoup, package_name: str) -> str:
         """Extract package description from the package page."""
         try:
-            # Look for "Module contents" heading
-            module_contents_heading = None
+            # Construct URL as requested: self.base_url{package_name}.html#module-{package_name}
+            url = f"{self.base_url}{package_name}.html#module-{package_name}"
             
-            # Try different possible headings
-            possible_headings = [
-                "Module contents",
-                "Package contents", 
-                "Contents",
-                "Description"
-            ]
+            # Fetch the webpage
+            page_soup = self._fetch_page_content(url)
+            if not page_soup:
+                return self._clean_description("")
             
-            for heading_text in possible_headings:
-                heading = soup.find(['h1', 'h2', 'h3', 'h4'], string=re.compile(heading_text, re.IGNORECASE))
-                if heading:
-                    module_contents_heading = heading
-                    break
+            # Find section with id="module-{package_name}"
+            section = page_soup.find('section', id=f'module-{package_name}')
+            if not section:
+                return self._clean_description("")
             
-            if module_contents_heading:
-                # Get the next paragraph or div after the heading
-                description_elem = module_contents_heading.find_next(['p', 'div', 'section'])
-                if description_elem:
-                    description = description_elem.get_text().strip()
-                    return self._clean_description(description)
+            # Extract all text content from the section
+            description_text = section.get_text()
             
-            # Fallback: try to find any descriptive paragraph
-            # Look for the first substantial paragraph
-            for p in soup.find_all('p'):
-                text = p.get_text().strip()
-                if len(text) > 50 and package_name.split('.')[-1].lower() in text.lower():
-                    return self._clean_description(text)
+            # Remove "Module contents" heading
+            description_text = description_text.replace("Module contents", "").strip()
             
-            # Final fallback: use any paragraph with substantial content
-            for p in soup.find_all('p'):
-                text = p.get_text().strip()
-                if len(text) > 50:
-                    return self._clean_description(text)
-                    
-        except Exception as e:
-            logger.warning(f"Error extracting description for {package_name}: {e}")
-        
-        return f"Biopython package for {package_name.split('.')[-1].lower()} analysis and processing"
+            return self._clean_description(description_text)
+            
+        except Exception:
+            return self._clean_description("")
     
     def _create_package_tool(self, package_name: str, package_url: str, description: str) -> BioPythonTool:
         """Create a BioPythonTool object for a package."""

@@ -47,7 +47,7 @@ class ToolDiscoveryAgent:
             self.use_gemini = False
             print("⚠️  GOOGLE_API_KEY not found. Running without Gemini AI enhancement.")
 
-    async def discover_tools(self, query: str) -> dict:
+    async def discover_tools(self, query: str, max_results: int = 15) -> dict:
         """
         Discover tools for a given query by combining results from Enhanced MCP and ChromaDB.
         Uses all available sources: Original MCP, Exa Search, Tavily, PubMed E-utilities, Europe PMC.
@@ -55,7 +55,7 @@ class ToolDiscoveryAgent:
         Returns a dictionary with a formatted response and analysis.
         """
         # Query ChromaDB first (fastest)
-        chroma_results = await self.chroma_store.semantic_search(query)
+        chroma_results = await self.chroma_store.semantic_search(query, n_results=max_results)
 
         # Query all MCP sources concurrently using the enhanced client
         all_mcp_results = await self.mcp_client.query_all_sources(query)
@@ -108,7 +108,7 @@ class ToolDiscoveryAgent:
 
         # Format comprehensive response
         chroma_tool_names = [
-            t["name"] for t in chroma_results[:5]
+            t["name"] for t in chroma_results[:max_results]
         ]  # Top 5 ChromaDB results
         web_tool_names = [t["name"] for t in web_tools]
         paper_titles = [p["title"][:50] + "..." for p in papers]
@@ -153,7 +153,7 @@ class ToolDiscoveryAgent:
         return {
             "response": response,
             "analysis": analysis,
-            "chroma_tools": chroma_results[:5],
+            "chroma_tools": chroma_results[:max_results],
             "web_tools": web_tools,
             "papers": papers,
             "mcp_tools": mcp_tools,

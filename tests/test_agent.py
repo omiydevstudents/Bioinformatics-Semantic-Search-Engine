@@ -127,7 +127,8 @@ async def test_discover_tools_genome_assembly():
     """Test enhanced tool discovery for genome assembly using real data."""
     agent = ToolDiscoveryAgent()
 
-    query = "Find tools for genome assembly and annotation"
+    # query = "Find tools for genome assembly and annotation"
+    query = "protien structure prediction bioinformatics"
     print(f"🔍 Querying for: {query}")
 
     try:
@@ -162,7 +163,7 @@ if __name__ == "__main__":
         agent = ToolDiscoveryAgent()
 
         try:
-            query = "Suggest software for protein structure prediction"
+            query = "Machine learning libraries for computational biology"
             print(f"🔍 Querying for: {query}")
             result = await agent.discover_tools(query)
 

@@ -1,28 +1,33 @@
-# run_test.py
+import httpx
+from smithery_client.config import API_BASE_URL, API_KEY
 
-from smithery_client.client import SmitheryClient
-from smithery_client.workflows import execute_workflow
-from smithery_client.templates import create_template, get_template, list_templates
+class SmitheryClient:
+    def __init__(self, api_key=API_KEY):
+        self.base_url = API_BASE_URL
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
 
-def run():
-    client = SmitheryClient()
-    
-    # Search tools
-    tools = client.search_tools("genome")
-    print("\nTool Search Result:\n", tools)
-
-    # Get tool details
-    tool_info = client.get_tool_details("tool-001")
-    print("\nTool Details:\n", tool_info)
-
-    # Execute workflow
-    result = execute_workflow("tool-001", {"input_file": "data.fasta", "threshold": 0.95})
-    print("\nWorkflow Execution Result:\n", result)
-
-    # Template operations
-    create_template("genomic-analysis", "tool-001", {"threshold": 0.8})
-    print("\nTemplate Retrieved:\n", get_template("genomic-analysis"))
-    print("\nAll Templates:\n", list_templates())
+    def query_mcp(self, query: str) -> dict:
+        print(f"🔍 Sending query to Smithery MCP: {query}")
+        try:
+            response = httpx.post(
+                self.base_url,
+                json={"query": query},
+                headers=self.headers,
+                timeout=30.0
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            print(f"❌ HTTP error: {e.response.status_code} - {e.response.text}")
+            return {"error": str(e)}
+        except httpx.RequestError as e:
+            print(f"❌ Request failed: {e}")
+            return {"error": str(e)}
 
 if __name__ == "__main__":
-    run()
+    client = SmitheryClient()
+    result = client.query_mcp("example query")
+    print("Result:", result)

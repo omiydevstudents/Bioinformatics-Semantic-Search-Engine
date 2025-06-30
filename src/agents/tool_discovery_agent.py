@@ -6,7 +6,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from db.chroma_store import SemanticSearchStore
-from mcp.enhanced_mcp_client import EnhancedMCPClient
+from mcp_local.enhanced_mcp_client import EnhancedMCPClient
 
 try:
     from langchain_community.memory import ConversationBufferMemory
@@ -50,7 +50,7 @@ class ToolDiscoveryAgent:
     async def discover_tools(self, query: str, max_results: int = 15) -> dict:
         """
         Discover tools for a given query by combining results from Enhanced MCP and ChromaDB.
-        Uses all available sources: Original MCP, Exa Search, Tavily, PubMed E-utilities, Europe PMC.
+        Uses all available sources: Original MCP, Exa Search, Tavily, PubMed E-utilities, Europe PMC, and EXA Smithery.
         Enhanced with Gemini AI for intelligent analysis and ranking.
         Returns a dictionary with a formatted response and analysis.
         """
@@ -59,6 +59,9 @@ class ToolDiscoveryAgent:
 
         # Query all MCP sources concurrently using the enhanced client
         all_mcp_results = await self.mcp_client.query_all_sources(query)
+
+        # Also query EXA Smithery (new integration)
+        exa_smithery_results = await self.mcp_client.query_exa_smithery(query)
 
         # Process all MCP results
         mcp_tools = []
@@ -105,6 +108,16 @@ class ToolDiscoveryAgent:
 
             else:
                 mcp_messages.append(f"{source_name}: Error - {response.error}")
+
+        # Add EXA Smithery results to web_tools (label as EXA Smithery)
+        if exa_smithery_results:
+            for res in exa_smithery_results:
+                web_tools.append({
+                    "name": res.get("title", "EXA Smithery Result"),
+                    "description": res.get("snippet", ""),
+                    "url": res.get("url", ""),
+                    "source": "exa_smithery"
+                })
 
         # Format comprehensive response
         chroma_tool_names = [

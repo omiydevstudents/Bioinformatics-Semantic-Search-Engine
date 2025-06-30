@@ -8,7 +8,7 @@ Based on LangGraph Self-RAG concepts with bioinformatics-specific adaptations.
 import asyncio
 import sys
 import os
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 
 # Add src to path
@@ -81,7 +81,7 @@ class SelfRAGAgent:
         if google_api_key:
             self.gemini = ChatGoogleGenerativeAI(
                 model="gemini-1.5-pro",
-                google_api_key=google_api_key,
+                api_key=google_api_key,
                 temperature=0.1,  # Lower temperature for consistent grading
                 max_tokens=500
             )
@@ -94,67 +94,107 @@ class SelfRAGAgent:
     async def grade_tool_relevance(self, query: str, tools: List[Dict]) -> List[Dict]:
         """
         Grade whether retrieved tools are relevant to the query.
-        
-        Args:
-            query: Original search query
-            tools: List of retrieved tools
-            
-        Returns:
-            List of tools with relevance grades
+        Now uses LLM call batching for maximum speed - processes multiple tools in a single LLM call.
         """
         if not self.use_gemini or not tools:
             return tools
+
+        # Batch size optimization - 3-5 tools per batch is optimal for most LLMs
+        BATCH_SIZE = 4
         
-        graded_tools = []
-        
-        for tool in tools:
+        async def grade_batch(tool_batch: List[Dict]) -> List[Dict]:
+            """Grade a batch of tools in a single LLM call."""
             try:
-                # Create grading prompt
+                # Create batch grading prompt
                 system_prompt = """You are a bioinformatics expert grading tool relevance.
                 
-                Assess whether a bioinformatics tool is relevant to a user's query.
-                Consider:
+                Assess whether multiple bioinformatics tools are relevant to a user's query.
+                For each tool, consider:
                 - Tool name and description
                 - Tool category and functionality
                 - Query intent and domain
                 - Semantic similarity
                 
-                Give a binary score 'yes' or 'no' with brief reasoning."""
-                
+                Grade each tool with 'yes' or 'no' and provide brief reasoning.
+                Return results in the exact format specified."""
+
+                # Build the batch prompt
+                tools_text = ""
+                for i, tool in enumerate(tool_batch, 1):
+                    tools_text += f"\n{i}. Tool: {tool.get('name', 'Unknown')}\n"
+                    tools_text += f"   Category: {tool.get('category', 'Unknown')}\n"
+                    tools_text += f"   Description: {tool.get('content', '')[:150]}...\n"
+
                 prompt = ChatPromptTemplate.from_messages([
                     ("system", system_prompt),
-                    ("human", f"Query: {query}\n\nTool: {tool.get('name', 'Unknown')}\n"
-                             f"Category: {tool.get('category', 'Unknown')}\n"
-                             f"Description: {tool.get('content', '')[:200]}...")
+                    ("human", f"Query: {query}\n\nTools to grade:{tools_text}\n\n"
+                             f"Grade each tool as 'yes' (relevant) or 'no' (not relevant) with brief reasoning.")
                 ])
-                
-                # Grade the tool
-                chain = prompt | self.gemini.with_structured_output(GradeDocuments)
-                grade = await chain.ainvoke({
+
+                # Create structured output for batch grading
+                class BatchGrade(BaseModel):
+                    grades: List[Dict[str, str]] = Field(
+                        description="List of grades for each tool in order, each with 'score' (yes/no) and 'reasoning'"
+                    )
+
+                # Grade the batch
+                if self.gemini is None:
+                    raise ValueError("Gemini client not initialized")
+                chain = prompt | self.gemini.with_structured_output(BatchGrade)
+                batch_result = await chain.ainvoke({
                     "query": query,
-                    "tool_name": tool.get('name', 'Unknown'),
-                    "tool_category": tool.get('category', 'Unknown'),
-                    "tool_description": tool.get('content', '')[:200]
+                    "tools_count": len(tool_batch)
                 })
+
+                # Ensure dict access
+                if not isinstance(batch_result, dict):
+                    batch_result = batch_result.dict() if hasattr(batch_result, 'dict') else dict(batch_result)
+
+                # Apply grades to tools
+                graded_tools = []
+                grades = batch_result.get('grades', [])
                 
-                # Add grade to tool
-                tool['relevance_grade'] = grade.binary_score
-                tool['relevance_reasoning'] = grade.reasoning
-                
-                if grade.binary_score == 'yes':
-                    graded_tools.append(tool)
-                    print(f"✅ Tool '{tool.get('name')}' graded as RELEVANT")
-                else:
-                    print(f"❌ Tool '{tool.get('name')}' graded as NOT RELEVANT: {grade.reasoning}")
-                    
+                for i, tool in enumerate(tool_batch):
+                    if i < len(grades):
+                        grade = grades[i]
+                        tool['relevance_grade'] = grade.get('score', 'unknown')
+                        tool['relevance_reasoning'] = grade.get('reasoning', 'No reasoning provided')
+                        
+                        if grade.get('score') == 'yes':
+                            print(f"✅ Tool '{tool.get('name')}' graded as RELEVANT")
+                            graded_tools.append(tool)
+                        else:
+                            print(f"❌ Tool '{tool.get('name')}' graded as NOT RELEVANT: {grade.get('reasoning', '')}")
+                    else:
+                        # Fallback if LLM didn't return enough grades
+                        tool['relevance_grade'] = 'unknown'
+                        tool['relevance_reasoning'] = 'Batch grading failed - insufficient results'
+                        graded_tools.append(tool)
+
+                return graded_tools
+
             except Exception as e:
-                print(f"⚠️  Error grading tool {tool.get('name')}: {e}")
-                # Include tool if grading fails
-                tool['relevance_grade'] = 'unknown'
-                tool['relevance_reasoning'] = f"Grading failed: {e}"
-                graded_tools.append(tool)
+                print(f"⚠️  Error grading batch: {e}")
+                # Fallback: mark all tools in batch as unknown
+                for tool in tool_batch:
+                    tool['relevance_grade'] = 'unknown'
+                    tool['relevance_reasoning'] = f"Batch grading failed: {e}"
+                return tool_batch
+
+        # Split tools into batches
+        batches = [tools[i:i + BATCH_SIZE] for i in range(0, len(tools), BATCH_SIZE)]
+        print(f"📦 Processing {len(tools)} tools in {len(batches)} batches of {BATCH_SIZE}")
+
+        # Process all batches in parallel
+        batch_results = await asyncio.gather(*(grade_batch(batch) for batch in batches))
         
-        return graded_tools
+        # Flatten results
+        all_graded_tools = []
+        for batch_result in batch_results:
+            all_graded_tools.extend(batch_result)
+
+        print(f"🎯 Batch grading complete: {len(all_graded_tools)} tools processed")
+        return all_graded_tools
     
     async def grade_recommendations(self, query: str, results: Dict) -> Dict:
         """
@@ -219,12 +259,18 @@ class SelfRAGAgent:
                          f"Analysis/Recommendations:\n{analysis}")
             ])
             
+            if self.gemini is None:
+                raise ValueError("Gemini client not initialized")
             grounding_chain = grounding_prompt | self.gemini.with_structured_output(GradeHallucinations)
             grounding_grade = await grounding_chain.ainvoke({
                 "query": query,
                 "context": context,
                 "analysis": analysis
             })
+            
+            # Ensure dict access
+            if not isinstance(grounding_grade, dict):
+                grounding_grade = grounding_grade.dict() if hasattr(grounding_grade, 'dict') else dict(grounding_grade)
             
             # Grade answer quality
             answer_prompt = ChatPromptTemplate.from_messages([
@@ -243,6 +289,8 @@ class SelfRAGAgent:
                          f"- Analysis: {analysis[:200]}...")
             ])
             
+            if self.gemini is None:
+                raise ValueError("Gemini client not initialized")
             answer_chain = answer_prompt | self.gemini.with_structured_output(GradeAnswer)
             answer_grade = await answer_chain.ainvoke({
                 "query": query,
@@ -251,19 +299,23 @@ class SelfRAGAgent:
                 "analysis": analysis[:200]
             })
             
+            # Ensure dict access
+            if not isinstance(answer_grade, dict):
+                answer_grade = answer_grade.dict() if hasattr(answer_grade, 'dict') else dict(answer_grade)
+            
             # Add grades to results
             results['quality_grades'] = {
-                'grounded': grounding_grade.binary_score,
-                'grounded_reasoning': grounding_grade.reasoning,
-                'addresses_query': answer_grade.binary_score,
-                'addresses_reasoning': answer_grade.reasoning,
-                'overall_quality': 'good' if (grounding_grade.binary_score == 'yes' and 
-                                            answer_grade.binary_score == 'yes') else 'needs_improvement'
+                'grounded': grounding_grade['binary_score'],
+                'grounded_reasoning': grounding_grade['reasoning'],
+                'addresses_query': answer_grade['binary_score'],
+                'addresses_reasoning': answer_grade['reasoning'],
+                'overall_quality': 'good' if (grounding_grade['binary_score'] == 'yes' and 
+                                            answer_grade['binary_score'] == 'yes') else 'needs_improvement'
             }
             
             print(f"🔍 Quality Grades:")
-            print(f"   Grounded: {grounding_grade.binary_score} - {grounding_grade.reasoning}")
-            print(f"   Addresses Query: {answer_grade.binary_score} - {answer_grade.reasoning}")
+            print(f"   Grounded: {grounding_grade['binary_score']} - {grounding_grade['reasoning']}")
+            print(f"   Addresses Query: {answer_grade['binary_score']} - {answer_grade['reasoning']}")
             
         except Exception as e:
             print(f"⚠️  Error grading recommendations: {e}")
@@ -319,17 +371,23 @@ class SelfRAGAgent:
                          f"Please provide an improved query for bioinformatics tool discovery.")
             ])
             
+            if self.gemini is None:
+                raise ValueError("Gemini client not initialized")
             chain = prompt | self.gemini.with_structured_output(QueryTransform)
             transform_result = await chain.ainvoke({
                 "query": query,
                 "previous_results": context
             })
-            
-            improved_query = transform_result.improved_query
+
+            # Ensure dict access for LLM output
+            if not isinstance(transform_result, dict):
+                transform_result = transform_result.dict() if hasattr(transform_result, 'dict') else dict(transform_result)
+
+            improved_query = transform_result['improved_query']
             print(f"🔄 Query Transformation:")
             print(f"   Original: {query}")
             print(f"   Improved: {improved_query}")
-            print(f"   Reasoning: {transform_result.reasoning}")
+            print(f"   Reasoning: {transform_result['reasoning']}")
             
             return improved_query
             
@@ -379,79 +437,86 @@ class SelfRAGAgent:
     async def discover_tools_self_rag(self, query: str) -> Dict:
         """
         Main Self-RAG enhanced tool discovery method.
-        
-        Args:
-            query: Original search query
-            
-        Returns:
-            Enhanced results with quality grades and iteration history
+        Adds timing/profiling and early stopping for speed.
         """
+        import time
         print(f"🤖 Self-RAG Enhanced Tool Discovery")
         print(f"Query: {query}")
         print("=" * 60)
-        
+
         original_query = query
         current_query = query
         iteration_history = []
         best_results = None
-        
+        start_time = time.time()
+
         for iteration in range(self.max_iterations):
             print(f"\n🔄 Iteration {iteration + 1}/{self.max_iterations}")
             print("-" * 40)
-            
+            t0 = time.time()
+
             # Discover tools with current query
+            t1 = time.time()
             results = await self.base_agent.discover_tools_enhanced(current_query)
-            
+            print(f"⏱️ Tool discovery: {time.time() - t1:.2f}s")
+
             # Grade tool relevance
+            t2 = time.time()
             if results.get('chroma_tools'):
                 results['chroma_tools'] = await self.grade_tool_relevance(
                     current_query, results['chroma_tools']
                 )
-            
+            print(f"⏱️ Tool grading: {time.time() - t2:.2f}s")
+
             # Grade overall recommendations
+            t3 = time.time()
             results = await self.grade_recommendations(current_query, results)
-            
+            print(f"⏱️ Recommendation grading: {time.time() - t3:.2f}s")
+
             # Add iteration info
             results['iteration'] = iteration + 1
             results['query_used'] = current_query
-            
+
             # Store in history
             iteration_history.append(results)
-            
+
             # Update best results if this is better
             if not best_results or (
                 results.get('quality_grades', {}).get('overall_quality') == 'good' and
                 best_results.get('quality_grades', {}).get('overall_quality') != 'good'
             ):
                 best_results = results
-            
+
             # Decide next action
             next_action = await self.decide_next_action(results, iteration)
-            
+
             print(f"\n🎯 Decision: {next_action.upper()}")
-            
-            if next_action == 'accept':
-                print("✅ Accepting current results")
+
+            # Early stopping: stop if quality is good or time budget exceeded
+            if next_action == 'accept' or (time.time() - start_time > 30):
+                print("✅ Accepting current results (early stop if needed)")
                 break
             elif next_action == 'refine_query':
                 print("🔄 Refining query for better results")
                 current_query = await self.transform_query(original_query, results)
             elif next_action == 'retrieve_more':
                 print("🔍 Attempting to retrieve more results")
-                # Could implement additional retrieval strategies here
                 break
-        
+
+            print(f"⏱️ Iteration total: {time.time() - t0:.2f}s")
+
         # Prepare final results
         final_results = best_results or results
         final_results['original_query'] = original_query
         final_results['iteration_history'] = iteration_history
         final_results['total_iterations'] = len(iteration_history)
         final_results['self_rag_enhanced'] = True
-        
+
         print(f"\n🎉 Self-RAG Discovery Complete!")
         print(f"Total iterations: {len(iteration_history)}")
         print(f"Final quality: {final_results.get('quality_grades', {}).get('overall_quality', 'unknown')}")
-        
+        print(f"⏱️ Total Self-RAG time: {time.time() - start_time:.2f}s")
+
         return final_results
     
     async def close(self):

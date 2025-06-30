@@ -11,6 +11,21 @@ import json
 import asyncio
 from dotenv import load_dotenv
 from .mcp_client import MCPClient, MCPResponse
+import base64
+import mcp
+from mcp.client.streamable_http import streamablehttp_client
+
+# Import streamablehttp_client from the installed mcp package
+try:
+    # Try absolute import first (installed package)
+    from mcp.client.streamable_http import streamablehttp_client
+except ImportError:
+    # Fallback for development environments
+    import sys
+    import os
+    # Add the parent directory to path to find the installed mcp package
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+    from mcp.client.streamable_http import streamablehttp_client
 
 load_dotenv()
 
@@ -414,6 +429,82 @@ class EnhancedMCPClient(MCPClient):
             return MCPResponse(
                 success=False, data={}, error=f"Europe PMC error: {str(e)}"
             )
+
+    async def query_exa_smithery(self, query: str, num_results: int = 3):
+        """
+        Query EXA via Smithery MCP (web_search_exa tool) for web search results.
+        Returns a list of result dicts with title, url, and snippet.
+        """
+        config = {"debug": False}
+        smithery_api_key = os.getenv("SMITHERY_API_KEY")
+        if not smithery_api_key:
+            print("[EXA Smithery] ⚠️  SMITHERY_API_KEY not found in environment variables")
+            return []
+        
+        config_b64 = base64.b64encode(json.dumps(config).encode()).decode()
+        url = f"https://server.smithery.ai/exa/mcp?config={config_b64}&api_key={smithery_api_key}"
+
+        try:
+            print(f"[EXA Smithery] 🔗 Connecting to Smithery server...")
+            async with streamablehttp_client(url) as (read_stream, write_stream, _):
+                print(f"[EXA Smithery] ✅ Connected, initializing session...")
+                async with mcp.ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    print(f"[EXA Smithery] ✅ Session initialized, listing tools...")
+                    
+                    tools_result = await session.list_tools()
+                    tool_names = [t.name for t in tools_result.tools]
+                    print(f"[EXA Smithery] 📋 Available tools: {tool_names}")
+                    
+                    if "web_search_exa" not in tool_names:
+                        print(f"[EXA Smithery] ❌ 'web_search_exa' tool not available. Available tools: {tool_names}")
+                        return []
+                    
+                    print(f"[EXA Smithery] 🔍 Calling web_search_exa with query: '{query}'")
+                    result = await session.call_tool("web_search_exa", {"query": query, "num_results": num_results})
+                    print(f"[EXA Smithery] ✅ Tool call completed")
+                    
+                    parsed_results = []
+                    if result.content and isinstance(result.content, list):
+                        print(f"[EXA Smithery] 📄 Processing {len(result.content)} content items...")
+                        for i, item in enumerate(result.content):
+                            if hasattr(item, "text"):
+                                try:
+                                    parsed = json.loads(item.text)
+                                    results = parsed.get("results", [])
+                                    print(f"[EXA Smithery] 📊 Item {i+1}: {len(results)} results")
+                                    for res in results:
+                                        parsed_results.append({
+                                            "title": res.get("title", "N/A"),
+                                            "url": res.get("url", res.get("id", "N/A")),
+                                            "snippet": res.get("text", "N/A")
+                                        })
+                                except json.JSONDecodeError as e:
+                                    print(f"[EXA Smithery] ⚠️  JSON decode error in item {i+1}: {e}")
+                                    continue
+                                except Exception as e:
+                                    print(f"[EXA Smithery] ⚠️  Error processing item {i+1}: {e}")
+                                    continue
+                            else:
+                                print(f"[EXA Smithery] ⚠️  Item {i+1} has no 'text' attribute")
+                    else:
+                        print(f"[EXA Smithery] ⚠️  No content or unexpected format: {type(result.content)}")
+                    
+                    print(f"[EXA Smithery] ✅ Returning {len(parsed_results)} parsed results")
+                    return parsed_results
+                    
+        except ConnectionError as e:
+            print(f"[EXA Smithery] ❌ Connection error: {e}")
+            return []
+        except TimeoutError as e:
+            print(f"[EXA Smithery] ❌ Timeout error: {e}")
+            return []
+        except Exception as e:
+            print(f"[EXA Smithery] ❌ Unexpected error: {type(e).__name__}: {e}")
+            import traceback
+            print(f"[EXA Smithery] 📋 Full traceback:")
+            traceback.print_exc()
+            return []
 
     async def query_all_sources(self, query: str) -> Dict[str, MCPResponse]:
         """

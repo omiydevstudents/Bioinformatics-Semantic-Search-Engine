@@ -7,14 +7,12 @@ import asyncio
 import sys
 import os
 from dotenv import load_dotenv
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 # Load environment variables
 load_dotenv()
 
-# Add the src directory to Python path
-sys.path.insert(0, "./src")
-
-from mcp.enhanced_mcp_client import EnhancedMCPClient
+from mcp_local.enhanced_mcp_client import EnhancedMCPClient
 from agents.tool_discovery_agent import ToolDiscoveryAgent
 
 
@@ -265,6 +263,26 @@ async def test_domain_specific_filtering():
     await client.close()
 
 
+async def test_exa_smithery_integration():
+    """Test EXA Smithery integration via EnhancedMCPClient."""
+    print("\n🔬 Testing EXA Smithery Integration")
+    print("=" * 70)
+    client = EnhancedMCPClient()
+    query = "protein structure prediction tools"
+    print(f"🔍 Query: '{query}'")
+    results = await client.query_exa_smithery(query)
+    if not results:
+        print("⚠️  No results returned (check SMITHERY_API_KEY or network/API status)")
+    else:
+        print(f"✅ Found {len(results)} EXA Smithery results")
+        top = results[0]
+        print(f"🏆 Top result:")
+        print(f"   Title  : {top.get('title', 'N/A')}")
+        print(f"   URL    : {top.get('url', 'N/A')}")
+        print(f"   Snippet: {top.get('snippet', 'N/A')[:100]}...")
+    await client.close()
+
+
 async def main():
     """Main test function covering all meeting requirements."""
     print("🧪 Enhanced MCP Integration Testing Suite")
@@ -284,6 +302,9 @@ async def main():
         # Test 4: Domain-specific filtering (David's integration)
         await test_domain_specific_filtering()
 
+        # Test 5: EXA Smithery integration
+        await test_exa_smithery_integration()
+
         print("\n🎉 Enhanced MCP Integration Testing Complete!")
         print("\n📋 Meeting Action Items Status:")
         print("✅ Alternative MCP servers tested")
@@ -292,6 +313,7 @@ async def main():
         print("✅ Domain-specific filtering working")
         print("✅ Multi-source concurrent querying")
         print("✅ Subquery strategy validated")
+        print("✅ EXA Smithery integration tested")
 
         print("\n🚀 Ready for integration with:")
         print("   - RAG system with Gemini integration")

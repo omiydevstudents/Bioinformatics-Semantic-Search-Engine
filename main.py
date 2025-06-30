@@ -117,6 +117,70 @@ async def search_tools(request: SearchRequest) -> SearchResponse:
             detail=f"Search failed: {str(e)}"
         )
 
+def format_enhanced_response(enhanced_text: str) -> Dict:
+    """
+    Parse and structure the enhanced agent response for better web display.
+    
+    Args:
+        enhanced_text: Raw enhanced agent response text
+        
+    Returns:
+        Dict with structured summary and detailed analysis
+    """
+    # Initialize structured response
+    structured = {
+        "summary": "",
+        "detailed_analysis": ""
+    }
+    
+    # Split the text into sections
+    lines = enhanced_text.split('\n')
+    current_section = "summary"
+    summary_parts = []
+    analysis_parts = []
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Check for section headers
+        if line.startswith("**Top") or line.startswith("**Notable Gaps:") or line.startswith("**Recommendations:") or line.startswith("**Overall Assessment:"):
+            current_section = "analysis"
+            analysis_parts.append(f"\n### {line.strip('*')}")
+            continue
+            
+        # Check for numbered lists
+        if line.startswith(("1.", "2.", "3.")) and "(" in line and "):" in line:
+            current_section = "analysis"
+            # Format as a proper list item
+            analysis_parts.append(f"\n{line}")
+            continue
+            
+        # Check for bullet points
+        if line.startswith("* ") or line.startswith("- "):
+            current_section = "analysis"
+            analysis_parts.append(f"\n{line}")
+            continue
+            
+        # Add to appropriate section
+        if current_section == "summary":
+            summary_parts.append(line)
+        else:
+            analysis_parts.append(line)
+    
+    # Combine summary parts
+    structured["summary"] = " ".join(summary_parts)
+    
+    # Combine analysis parts and add structure
+    if analysis_parts:
+        structured["detailed_analysis"] = "\n".join(analysis_parts)
+    else:
+        structured["detailed_analysis"] = enhanced_text
+    
+    return structured
+
+
 def format_response_for_web(result: Dict, query: str) -> Dict:
     """Format the Self-RAG agent response for web display."""
     
@@ -210,8 +274,20 @@ def format_response_for_web(result: Dict, query: str) -> Dict:
     else:
         response_text += "I couldn't find specific tools, but here's what I found in the scientific literature."
     
-    # Format analysis (now includes Self-RAG insights)
+    # Format analysis with better structure
     analysis = result.get("analysis", "No detailed analysis available.")
+    
+    # Parse and structure the analysis if it contains the enhanced agent response format
+    if "=== ENHANCED AGENT RESPONSE ===" in analysis:
+        # Extract the enhanced response and format it properly
+        enhanced_parts = analysis.split("=== ENHANCED AGENT RESPONSE ===")
+        if len(enhanced_parts) > 1:
+            enhanced_response = enhanced_parts[1].strip()
+            
+            # Structure the enhanced response
+            structured_response = format_enhanced_response(enhanced_response)
+            response_text = structured_response["summary"]
+            analysis = structured_response["detailed_analysis"]
     
     # Add Self-RAG quality summary to analysis
     if quality_metrics:

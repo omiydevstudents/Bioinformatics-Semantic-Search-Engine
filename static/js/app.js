@@ -196,9 +196,9 @@ class BioinformaticsSearchApp {
                     </div>
                 </div>
                 <div class="response-text">
-                    ${response}
+                    ${this.formatResponseText(response)}
                 </div>
-                ${analysis ? `<div class="analysis-text">${analysis}</div>` : ''}
+                ${analysis ? `<div class="analysis-text">${this.formatAnalysisText(analysis)}</div>` : ''}
             </div>
         `;
         
@@ -324,6 +324,78 @@ class BioinformaticsSearchApp {
         } else {
             return 'fas fa-info-circle';
         }
+    }
+    
+    formatResponseText(text) {
+        // Format the main response text with better structure
+        if (!text) return '';
+        
+        // Convert markdown-style formatting to HTML
+        let formatted = this.escapeHtml(text);
+        
+        // Convert **bold** to <strong>
+        formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        
+        // Convert *italic* to <em>
+        formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
+        
+        // Convert line breaks to paragraphs
+        formatted = formatted.replace(/\n\n/g, '</p><p>');
+        formatted = formatted.replace(/\n/g, '<br>');
+        
+        // Wrap in paragraph tags
+        formatted = `<p>${formatted}</p>`;
+        
+        return formatted;
+    }
+    
+    formatAnalysisText(text) {
+        // Format the analysis text with better structure
+        if (!text) return '';
+        
+        let formatted = this.escapeHtml(text);
+        
+        // Convert markdown headers to HTML headers
+        formatted = formatted.replace(/^### (.*$)/gm, '<h4>$1</h4>');
+        formatted = formatted.replace(/^## (.*$)/gm, '<h3>$1</h3>');
+        formatted = formatted.replace(/^# (.*$)/gm, '<h2>$1</h2>');
+        
+        // Convert **bold** to <strong>
+        formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        
+        // Convert *italic* to <em>
+        formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
+        
+        // Handle specific enhanced agent response sections
+        formatted = formatted.replace(/\*\*Top (\d+).*?\*\*/g, '<h4 class="gap-section">Top $1 Results</h4>');
+        formatted = formatted.replace(/\*\*Notable Gaps:\*\*/g, '<h4 class="gap-section">Notable Gaps</h4>');
+        formatted = formatted.replace(/\*\*Recommendations:\*\*/g, '<h4 class="recommendation-section">Recommendations</h4>');
+        formatted = formatted.replace(/\*\*Overall Assessment:\*\*/g, '<h4 class="quality-assessment">Overall Assessment</h4>');
+        
+        // Convert numbered lists with better formatting
+        formatted = formatted.replace(/^(\d+\.\s+.*?)(?=\n\d+\.|$)/gms, '<li>$1</li>');
+        
+        // Convert bullet points
+        formatted = formatted.replace(/^[\*\-]\s+(.*$)/gm, '<li>$1</li>');
+        
+        // Wrap consecutive list items in <ul> or <ol> tags
+        formatted = formatted.replace(/(<li>.*?<\/li>)(\s*<li>.*?<\/li>)*/gs, function(match) {
+            // Check if it's a numbered list
+            if (match.match(/^\d+\./)) {
+                return `<ol>${match}</ol>`;
+            } else {
+                return `<ul>${match}</ul>`;
+            }
+        });
+        
+        // Convert line breaks to paragraphs
+        formatted = formatted.replace(/\n\n/g, '</p><p>');
+        formatted = formatted.replace(/\n/g, '<br>');
+        
+        // Wrap in paragraph tags
+        formatted = `<p>${formatted}</p>`;
+        
+        return formatted;
     }
     
     escapeHtml(text) {

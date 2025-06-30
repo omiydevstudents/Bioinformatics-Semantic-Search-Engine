@@ -322,6 +322,104 @@ body {
     border-left: 4px solid var(--primary-blue);
 }
 
+/* Enhanced text formatting */
+.response-text p,
+.analysis-text p {
+    margin-bottom: var(--spacing-md);
+    line-height: 1.6;
+}
+
+.response-text h2,
+.analysis-text h2 {
+    font-size: var(--font-size-xl);
+    font-weight: 600;
+    margin: var(--spacing-lg) 0 var(--spacing-md) 0;
+    color: var(--text-primary);
+}
+
+.response-text h3,
+.analysis-text h3 {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    margin: var(--spacing-md) 0 var(--spacing-sm) 0;
+    color: var(--text-primary);
+}
+
+.response-text h4,
+.analysis-text h4 {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    margin: var(--spacing-sm) 0 var(--spacing-xs) 0;
+    color: var(--text-primary);
+}
+
+.response-text strong,
+.analysis-text strong {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.response-text em,
+.analysis-text em {
+    font-style: italic;
+    color: var(--text-secondary);
+}
+
+.response-text ul,
+.analysis-text ul,
+.response-text ol,
+.analysis-text ol {
+    margin: var(--spacing-md) 0;
+    padding-left: var(--spacing-xl);
+}
+
+.response-text li,
+.analysis-text li {
+    margin-bottom: var(--spacing-sm);
+    line-height: 1.5;
+}
+
+.response-text ul li,
+.analysis-text ul li {
+    list-style-type: disc;
+}
+
+.response-text ol li,
+.analysis-text ol li {
+    list-style-type: decimal;
+}
+
+/* Quality assessment styling */
+.quality-assessment {
+    background: var(--background-tertiary);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    margin-top: var(--spacing-md);
+    border-left: 4px solid var(--success-green);
+}
+
+.quality-assessment h4 {
+    color: var(--success-green);
+    margin-bottom: var(--spacing-sm);
+}
+
+/* Gap and recommendation styling */
+.gap-section,
+.recommendation-section {
+    background: var(--background-secondary);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    margin: var(--spacing-md) 0;
+}
+
+.gap-section h4 {
+    color: var(--warning-orange);
+}
+
+.recommendation-section h4 {
+    color: var(--primary-blue);
+}
+
 /* Tools Grid */
 .tools-section {
     margin-bottom: var(--spacing-xl);

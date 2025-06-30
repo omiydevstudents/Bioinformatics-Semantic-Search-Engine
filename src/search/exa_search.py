@@ -1,64 +1,61 @@
-from typing import List, Dict, Optional
-import os
-from exa_py import Exa
-from pydantic import BaseModel
-from dotenv import load_dotenv
+import mcp
+from mcp.client.streamable_http import streamablehttp_client
+import json
+import base64
+import asyncio
 
-load_dotenv()
+config = {
+    "debug": False
+}
+smithery_api_key = "62f78669-16cd-48b3-98ea-d35c377be2b2"  # Replace with your real API key
+config_b64 = base64.b64encode(json.dumps(config).encode()).decode()
+url = f"https://server.smithery.ai/exa/mcp?config={config_b64}&api_key={smithery_api_key}"
 
-class SearchResult(BaseModel):
-    """Model for search results."""
-    title: str
-    url: str
-    text: str
-    score: float
-    metadata: Optional[Dict] = None
+async def main():
+    async with streamablehttp_client(url) as (read_stream, write_stream, _):
+        async with mcp.ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
 
-class ExaSearchClient:
-    """Client for EXA search integration."""
-    
-    def __init__(self):
-        api_key = os.getenv("EXA_API_KEY")
-        if not api_key:
-            raise ValueError("EXA_API_KEY environment variable is not set")
-        self.client = Exa(api_key=api_key)
+            tools_result = await session.list_tools()
+            tool_names = [t.name for t in tools_result.tools]
+            print("✅ Available tools:", tool_names)
 
-    async def search_tools(self, query: str, num_results: int = 5) -> List[SearchResult]:
-        """Search for bioinformatics tools using EXA."""
-        try:
-            # Add bioinformatics context to the query
-            enhanced_query = f"bioinformatics tools for {query}"
-            
-            response = self.client.search(
-                query=enhanced_query,
-                num_results=num_results,
-                include_domains=["github.com", "bioconductor.org", "biopython.org"],
-                use_autoprompt=True
-            )
+            tool_name = "web_search_exa"
+            if tool_name not in tool_names:
+                print(f"❌ Tool {tool_name} not available.")
+                return
 
-            results = []
-            for result in response.results:
-                search_result = SearchResult(
-                    title=result.title,
-                    url=result.url,
-                    text=result.text,
-                    score=result.score,
-                    metadata=result.metadata
-                )
-                results.append(search_result)
+            inputs = {
+                "query": "What is protein synthesis?",
+                "num_results": 3
+            }
 
-            return results
-        except Exception as e:
-            print(f"Error in EXA search: {str(e)}")
-            return []
+            print(f"🔍 Calling `{tool_name}` with inputs: {inputs}")
+            result = await session.call_tool(tool_name, inputs)
+            print("✅ Tool response received.")
 
-    async def get_tool_details(self, url: str) -> Optional[Dict]:
-        """Get detailed information about a specific tool."""
-        try:
-            response = self.client.get_contents([url])
-            if response and response.contents:
-                return response.contents[0]
-            return None
-        except Exception as e:
-            print(f"Error getting tool details: {str(e)}")
-            return None 
+            # ✅ Try parsing content from TextContent.text
+            if result.content and isinstance(result.content, list):
+                for i, item in enumerate(result.content, 1):
+                    if hasattr(item, 'text'):
+                        try:
+                            parsed = json.loads(item.text)
+                            for j, res in enumerate(parsed.get("results", []), 1):
+                                print(f"\n🔹 Result {j}")
+                                print("Title  :", res.get("title", "N/A"))
+                                print("URL    :", res.get("url", res.get("id", "N/A")))
+                                print("Snippet:", res.get("text", "N/A"))
+                        except Exception as e:
+                            print(f"⚠️ Error parsing item {i}: {e}")
+                    else:
+                        print(f"⚠️ Unexpected item format in result.content[{i}]")
+            else:
+                print("⚠️ No content or unexpected format in result.")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print("❌ Unhandled exception:")
+        import traceback
+        traceback.print_exc()

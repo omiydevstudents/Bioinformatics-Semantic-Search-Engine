@@ -23,7 +23,7 @@ The RAG (Retrieval-Augmented Generation) Pipeline is a comprehensive bioinformat
 - **Semantic Search**: Natural language queries with biomedical BERT embeddings
 - **Multi-Source Integration**: Combines Biopython, Bioconductor, MCP servers, and external APIs
 - **Real-Time Updates**: Automated package discovery and database synchronization
-- **Performance Optimized**: Sub-40ms search times with relevance scoring
+- **Performance Optimized**: Sub-50ms search times with relevance scoring
 - **Production Ready**: Comprehensive testing suite and error handling
 
 ### Technology Stack
@@ -105,7 +105,7 @@ The foundation of the RAG pipeline, providing semantic search capabilities throu
 - Persistent storage with automatic collection management
 
 **Performance Characteristics:**
-- Average search time: <40ms
+- Average search time: <50ms
 - Throughput: 25+ queries/second
 - Storage: Efficient vector indexing
 - Scalability: Handles 2,500+ tools with sub-linear search complexity
@@ -626,7 +626,7 @@ cp -r data/chroma data/chroma_backup_$(date +%Y%m%d)
 ### Performance Monitoring
 
 **Key Metrics to Track:**
-- Search response time (target: <40ms)
+- Search response time (target: <50ms)
 - Database size growth
 - Memory usage patterns
 - Query success rates
@@ -657,7 +657,7 @@ async def monitor_performance():
     
     avg_time = sum(times) / len(times)
     print(f"\nAverage Response Time: {avg_time:.1f}ms")
-    print(f"Performance Status: {'✅ GOOD' if avg_time < 40 else '⚠️ SLOW'}")
+    print(f"Performance Status: {'✅ GOOD' if avg_time < 50 else '⚠️ SLOW'}")
 
 # Run monitoring
 asyncio.run(monitor_performance())
@@ -816,7 +816,7 @@ stats.sort_stats('tottime').print_stats(10)
 ### Search Performance
 
 **Target Metrics:**
-- Average search time: <40ms
+- Average search time: <50ms
 - Throughput: >25 queries/second  
 - Memory usage: <2GB for 2,500 tools
 - 95th percentile response time: <100ms
@@ -1014,6 +1014,6 @@ store = SemanticSearchStore()
 results = await store.semantic_search("protein analysis")
 ```
 
-**Expected Results:** 2,500+ bioinformatics tools searchable in <40ms with >80% relevance accuracy.
+**Expected Results:** 2,500+ bioinformatics tools searchable in <50ms with >80% relevance accuracy.
 
 For additional support, see the troubleshooting section or open an issue in the project repository.

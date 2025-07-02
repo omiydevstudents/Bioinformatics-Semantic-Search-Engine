@@ -208,7 +208,7 @@ async def check_bioconductor_packages():
         return [], []
 
 async def check_biotools_packages():
-    """Check for new bio.tools entries."""
+    """Check for new bio.tools entries (complete check)."""
     print("\n🔧 Checking bio.tools entries...")
     print("-" * 40)
     
@@ -239,10 +239,9 @@ async def check_biotools_packages():
     else:
         print("📄 Bio.tools data directory not found")
     
-    # Since bio.tools has 30,000+ entries, we'll do a simplified check
-    # Check only the first few pages for new tools
+    # Check all pages for new tools
     print("🔍 Checking for new bio.tools entries...")
-    print("   (Checking first 10 pages for efficiency)")
+    print("   (Checking all pages - this may take a while)")
     
     try:
         import requests
@@ -250,9 +249,11 @@ async def check_biotools_packages():
         new_tools = []
         checked_ids = set()
         
-        # Check first 10 pages
-        for page in range(1, 11):
+        # Check all pages
+        page = 1
+        while True:
             try:
+                print(f"   Checking page {page}...")
                 response = requests.get(
                     f"https://bio.tools/api/tool/?page={page}&format=json",
                     timeout=30
@@ -280,6 +281,8 @@ async def check_biotools_packages():
                     
                     if not data.get('next'):
                         break
+                    
+                    page += 1
                 else:
                     break
                     
@@ -288,14 +291,13 @@ async def check_biotools_packages():
                 break
         
         if new_tools:
-            print(f"🆕 Found {len(new_tools)} new bio.tools entries in first 10 pages:")
+            print(f"🆕 Found {len(new_tools)} new bio.tools entries:")
             for tool in new_tools[:10]:
                 print(f"   • {tool['name']} ({tool['biotoolsID']})")
             if len(new_tools) > 10:
                 print(f"   ... and {len(new_tools) - 10} more")
-            print("\n⚠️  Note: This is a partial check. Run full update to get all new tools.")
         else:
-            print("✅ No new bio.tools entries found in first 10 pages")
+            print("✅ No new bio.tools entries found")
         
         # For bio.tools, we return a flag to indicate if full update is needed
         needs_full_update = len(new_tools) > 20  # If many new tools, suggest full update

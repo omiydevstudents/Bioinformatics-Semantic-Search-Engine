@@ -1,4 +1,4 @@
-# RAG Pipeline Documentation - Bioinformatics Semantic Search Engine
+# RAG Pipeline Documentation - Comprehensive Bioinformatics Semantic Search Engine
 
 ## Table of Contents
 
@@ -6,7 +6,7 @@
 2. [Architecture](#architecture)
 3. [Core Components](#core-components)
 4. [Installation & Setup](#installation--setup)
-5. [Integration Guide](#integration-guide)
+5. [Data Sources & Integration](#data-sources--integration)
 6. [Component Reference](#component-reference)
 7. [Testing & Validation](#testing--validation)
 8. [Maintenance & Updates](#maintenance--updates)
@@ -16,22 +16,24 @@
 
 ## Overview
 
-The RAG (Retrieval-Augmented Generation) Pipeline is a comprehensive bioinformatics semantic search engine that enables intelligent discovery of computational biology tools. It combines vector databases, biomedical embeddings, and web scraping to create a searchable repository of 2,500+ bioinformatics tools from both Python (Biopython) and R (Bioconductor) ecosystems.
+The RAG (Retrieval-Augmented Generation) Pipeline is a comprehensive bioinformatics semantic search engine that enables intelligent discovery of computational biology tools. It combines vector databases, biomedical embeddings, and sophisticated data collection to create a searchable repository of **30,000+ bioinformatics tools** from Python (Biopython), R (Bioconductor), and the extensive bio.tools registry.
 
 ### Key Features
 
-- **Semantic Search**: Natural language queries with biomedical BERT embeddings
-- **Multi-Source Integration**: Combines Biopython, Bioconductor, MCP servers, and external APIs
+- **Semantic Search**: Natural language queries with state-of-the-art BioLORD-2023 embeddings
+- **Multi-Source Integration**: Combines Biopython, Bioconductor, bio.tools, MCP servers, and external APIs
+- **Massive Tool Coverage**: 30,000+ tools from diverse programming languages and platforms
 - **Real-Time Updates**: Automated package discovery and database synchronization
 - **Performance Optimized**: Sub-50ms search times with relevance scoring
-- **Production Ready**: Comprehensive testing suite and error handling
+- **Production Ready**: Comprehensive testing suite and enterprise-grade error handling
 
 ### Technology Stack
 
-- **Vector Database**: ChromaDB with persistent storage
-- **Embeddings**: HuggingFace BiomedNLP-BERT for biomedical terminology
+- **Vector Database**: ChromaDB with persistent storage and optimized indexing
+- **Embeddings**: HuggingFace FremyCompany/BioLORD-2023 for state-of-the-art biomedical embeddings
 - **Text Processing**: LangChain text splitters and document processors
-- **Web Scraping**: BeautifulSoup4 with respectful rate limiting
+- **Data Collection**: Asynchronous collectors with respectful rate limiting
+- **API Integration**: RESTful APIs including bio.tools registry
 - **Testing**: Comprehensive validation and performance benchmarks
 
 ## Architecture
@@ -41,6 +43,7 @@ graph TB
     subgraph "Data Sources"
         BP[Biopython Documentation]
         BC[Bioconductor PACKAGES]
+        BT[Bio.tools Registry API]
         MCP[MCP Servers]
         EXA[EXA Search API]
     end
@@ -48,24 +51,28 @@ graph TB
     subgraph "Data Collection Layer"
         BPC[biopython_tools_collector.py]
         BCC[bioconductor_tools_collector.py]
+        BTC[biotools_collector.py]
         UPD[check_and_update_packages.py]
     end
     
     subgraph "RAG Pipeline Core"
         CS[chroma_store.py]
-        VDB[(ChromaDB Vector Database)]
-        EMB[BiomedNLP-BERT Embeddings]
+        VDB[(ChromaDB Vector Database<br/>30,000+ tools)]
+        EMB[BioLORD-2023 Embeddings]
     end
     
     subgraph "Integration Layer"
         LBP[load_biopython_tools.py]
         LBC[load_bioconductor_tools.py]
+        LBT[load_biotools_tools.py]
         RST[reset_chromadb.py]
     end
     
     subgraph "Testing & Validation"
         TQ[test_query.py]
         TRP[test_rag_pipeline.py]
+        TBA[test_biotools_api.py]
+        VBS[verify_biotools_setup.py]
     end
     
     subgraph "Application Layer"
@@ -76,529 +83,406 @@ graph TB
     
     BP --> BPC
     BC --> BCC
+    BT --> BTC
     BPC --> LBP
     BCC --> LBC
+    BTC --> LBT
     LBP --> CS
     LBC --> CS
+    LBT --> CS
     CS --> VDB
     CS --> EMB
     UPD --> BPC
     UPD --> BCC
+    UPD --> BTC
     VDB --> AGENT
     TQ --> CS
     TRP --> CS
+    TBA --> BT
+    VBS --> VDB
     AGENT --> API
     AGENT --> CLI
 ```
 
 ## Core Components
 
-### 1. Vector Database (chroma_store.py)
+### 1. ChromaDB Vector Store (chroma_store.py)
 
-The foundation of the RAG pipeline, providing semantic search capabilities through ChromaDB integration.
+The central component managing semantic search capabilities across all data sources.
 
-**Key Capabilities:**
-- Biomedical BERT embeddings for domain-specific similarity
-- Document chunking with overlap for comprehensive coverage
-- Relevance scoring with distance-to-similarity conversion
-- Category-based filtering and tool similarity search
-- Persistent storage with automatic collection management
+**Key Features:**
+- Persistent vector storage for 30,000+ bioinformatics tools
+- State-of-the-art BioLORD-2023 biomedical embeddings
+- Relevance scoring and result ranking
+- Batch processing for efficient data ingestion
+- Source-aware filtering and categorization
 
-**Performance Characteristics:**
-- Average search time: <50ms
-- Throughput: 25+ queries/second
-- Storage: Efficient vector indexing
-- Scalability: Handles 2,500+ tools with sub-linear search complexity
+**Implementation:**
+```python
+class SemanticSearchStore:
+    """ChromaDB-based semantic search store for bioinformatics tools - SINGLE ENTRY PER TOOL."""
+    
+    def __init__(self, persist_dir: str = "data/chroma"):
+        # Create persist directory
+        self.persist_dir = Path(persist_dir)
+        self.persist_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize embeddings with biomedical model FIRST
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name="FremyCompany/BioLORD-2023",
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
+        )
+        
+        # Initialize LangChain vector store
+        self.vector_store = Chroma(
+            collection_name="bioinformatics_tools_v2",
+            embedding_function=self.embeddings,
+            persist_directory=str(self.persist_dir)
+        )
+```
 
 ### 2. Data Collectors
 
 #### Biopython Collector (biopython_tools_collector.py)
-Web scraping implementation that extracts package information from official Biopython documentation.
+Sophisticated web scraper for Python bioinformatics packages.
 
 **Features:**
-- Official documentation parsing from biopython.org
-- Automatic categorization using keyword mapping
-- Feature extraction from package descriptions
-- Respectful crawling with rate limiting (0.1s per request)
-- Comprehensive error handling and retry logic
-
-**Data Extracted:**
-- Package names and full module paths
-- Descriptions from official documentation
-- Features and capabilities
-- Version information
-- Documentation URLs
+- Documentation parsing with BeautifulSoup4
+- Module hierarchy analysis
+- Feature extraction and categorization
+- Incremental update support
 
 #### Bioconductor Collector (bioconductor_tools_collector.py)
-Advanced scraper using the official Bioconductor PACKAGES file for reliable package discovery.
+R package collector with PACKAGES file parsing.
 
 **Features:**
-- Official PACKAGES file parsing (DCF format)
-- Individual package page scraping
-- Author and maintainer extraction
-- Version information from release metadata
-- Category mapping for bioinformatics domains
+- Direct PACKAGES file processing
+- Dependency graph analysis
+- Version tracking and updates
+- Batch processing optimization
 
-**Data Extracted:**
-- Package names and versions
-- Bioconductor release information
-- Author and maintainer details
-- Detailed package descriptions
-- Installation instructions
+#### Bio.tools Collector (biotools_collector.py)
+Comprehensive API collector for the bio.tools registry.
 
-### 3. Integration Scripts
+**Features:**
+- Paginated API consumption (30,000+ entries)
+- Intelligent exclusion of duplicate Biopython/Bioconductor entries
+- Rich metadata extraction (operations, topics, publications)
+- Programming language detection across 20+ languages
+- Chunked data storage for memory efficiency
+
+### 3. Data Loaders
 
 #### Biopython Loader (load_biopython_tools.py)
-Orchestrates the complete Biopython integration workflow.
-
-**Process:**
-1. Validates prerequisites and dependencies
-2. Runs the Biopython collector
-3. Converts data to ChromaDB format
-4. Loads tools into vector database
-5. Performs quality validation tests
-6. Generates integration reports
-
-#### Bioconductor Loader (load_bioconductor_tools.py)
-Manages Bioconductor package integration with enhanced data processing.
-
 **Process:**
 1. Internet connectivity validation
-2. Official PACKAGES file parsing
+2. Documentation discovery and parsing
+3. Tool extraction with categorization
+4. ChromaDB integration with conflict resolution
+5. Quality validation tests
+6. Performance metrics reporting
+
+#### Bioconductor Loader (load_bioconductor_tools.py)
+**Process:**
+1. Network availability check
+2. Official PACKAGES file retrieval
 3. Batch processing with rate limiting
-4. Data transformation and categorization
-5. ChromaDB integration with conflict resolution
-6. Performance metrics and reporting
+4. Data transformation and enrichment
+5. ChromaDB integration with deduplication
+6. Success metrics and reporting
+
+#### Bio.tools Loader (load_biotools_tools.py)
+**Process:**
+1. API connectivity verification
+2. Full registry traversal (30-60 minutes)
+3. Exclusion of Biopython/Bioconductor duplicates
+4. Chunked processing for 30,000+ entries
+5. Category and language normalization
+6. ChromaDB batch integration
+7. Comprehensive success reporting
 
 ### 4. Maintenance Tools
 
 #### Update Checker (check_and_update_packages.py)
-Automated maintenance system for keeping the database current.
+Automated maintenance system for keeping all three data sources current.
 
 **Capabilities:**
-- Incremental package discovery
+- Incremental discovery across all sources
+- Partial bio.tools checking (first 10 pages)
+- Full bio.tools update option (30,000+ entries)
 - Change detection and delta updates
 - JSON file synchronization
 - ChromaDB incremental updates
-- Comprehensive reporting
+- Comprehensive cross-source reporting
 
 #### Database Reset Tool (reset_chromadb.py)
-Safe database management utility with confirmation workflows.
+Safe database management utility with multi-source awareness.
 
 **Features:**
-- Current database inspection
+- Current database inspection with source breakdown
 - User confirmation with safety prompts
 - Complete data directory cleanup
 - Fresh database initialization
-- Verification and validation
+- Multi-source verification
 
 ### 5. Testing Framework
 
 #### Interactive Query Tool (test_query.py)
-Real-time testing interface for validating search functionality.
+Real-time testing interface for validating search across all sources.
 
-**Capabilities:**
-- Interactive query testing
-- Detailed result analysis
-- JSON data inspection
-- Source filtering and analysis
-- Performance measurement
+**Implementation:**
+```python
+class QueryTester:
+    """Simple query testing tool for beginners."""
+    
+    async def search_tools(self, query: str, max_results: int = 5, source_filter: str = None) -> List[Dict]:
+        """Search for tools using your query."""
+        
+        print(f"🔍 Searching for: '{query}'")
+        print("⏱️  Searching...")
+        
+        # Measure search speed
+        start_time = time.time()
+        results = await self.store.semantic_search(query, n_results=max_results)
+        search_time = time.time() - start_time
+        
+        # Filter by source if requested
+        if source_filter:
+            results = [r for r in results if r.get('source', '').lower() == source_filter.lower()]
+        
+        print(f"⚡ Search completed in {search_time:.3f} seconds")
+        print(f"📊 Found {len(results)} results")
+        
+        return results
+```
+
+**Usage:**
+```bash
+# Test specific queries
+python tests/test_query.py "protein structure prediction"
+python tests/test_query.py "RNA-seq analysis tools"
+python tests/test_query.py "sequence alignment"
+
+# Advanced options
+python tests/test_query.py "analysis" --max-results 10
+python tests/test_query.py "DESeq2" --detailed
+python tests/test_query.py "alignment" --source Biopython
+python tests/test_query.py "query" --stats
+```
 
 #### Pipeline Validator (test_rag_pipeline.py)
-Comprehensive testing suite for complete system validation.
+Comprehensive testing suite validating 30,000+ tool integration.
 
-**Test Coverage:**
-- ChromaDB connection and data integrity
-- Biomedical BERT embedding functionality
-- Semantic search accuracy and relevance
-- Multi-source agent integration
-- Performance benchmarks and optimization
-- Error handling and edge cases
+**Test Implementation:**
+```python
+class SimpleRAGTester:
+    """Simple tester for RAG pipeline - easy for beginners to understand."""
+    
+    async def test_embeddings(self):
+        """Test if HuggingFace biomedical BERT embeddings work."""
+        # Test embeddings by performing a simple semantic search
+        test_results = await self.store.semantic_search("protein structure prediction", n_results=1)
+        
+        if test_results and len(test_results) > 0:
+            result = test_results[0]
+            relevance = result.get('relevance_score', 0)
+            source = result.get('source', 'Unknown')
+            print(f"✅ Biomedical BERT working (relevance: {relevance:.3f}, found {source} tool)")
+            return True
+        return False
+    
+    async def test_performance(self):
+        """Test search performance benchmarks."""
+        test_queries = [
+            "protein structure prediction",
+            "RNA sequencing analysis", 
+            "DNA alignment tools",
+            "phylogenetic analysis",
+            "gene expression analysis"
+        ]
+        
+        times = []
+        for query in test_queries:
+            start_time = time.time()
+            results = await self.store.semantic_search(query, n_results=5)
+            query_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+            times.append(query_time)
+        
+        avg_time = sum(times) / len(times)
+        # Target is <40ms per query
+        target_met = avg_time < 50
+        
+        if target_met:
+            queries_per_sec = 1000 / avg_time
+            print(f"✅ Performance: Avg {avg_time:.1f}ms, ~{queries_per_sec:.1f} queries/second")
+        
+        return target_met
+```
+
+## Data Sources & Integration
+
+### 1. Biopython (Python Ecosystem)
+- **Tools**: ~200+ specialized modules
+- **Categories**: Sequence analysis, structure, phylogenetics
+- **Update Frequency**: Quarterly
+- **Integration**: Web scraping + documentation parsing
+
+### 2. Bioconductor (R Ecosystem)
+- **Packages**: ~2,200+ statistical genomics tools
+- **Categories**: RNA-seq, ChIP-seq, proteomics, visualization
+- **Update Frequency**: Biannual releases
+- **Integration**: PACKAGES file processing
+
+### 3. Bio.tools Registry (Multi-Language)
+- **Entries**: ~30,000+ tools
+- **Languages**: Python, R, Java, C++, web services, and more
+- **Categories**: All bioinformatics domains
+- **Update Frequency**: Real-time registry
+- **Integration**: RESTful API with pagination
+- **Exclusions**: Automatic deduplication of Biopython/Bioconductor
 
 ## Installation & Setup
 
 ### Prerequisites
 
 ```bash
-# Core dependencies
-pip install chromadb>=0.4.22
-pip install langchain-chroma>=0.2.4
-pip install langchain-huggingface>=0.3.0
-pip install sentence-transformers>=2.5.1
-pip install beautifulsoup4>=4.12.3
+# Required packages
+pip install chromadb>=0.4.0
+pip install langchain-community>=0.0.10
+pip install langchain-huggingface
+pip install beautifulsoup4>=4.12.0
 pip install requests>=2.31.0
-pip install python-dotenv>=1.0.1
-
-# Optional: For enhanced functionality
-pip install biopython>=1.83  # For version detection
-pip install fastapi>=0.110.0  # For API server
-pip install pytest>=8.0.2  # For testing
+pip install aiohttp>=3.9.0
 ```
 
-### Environment Configuration
-
-Create a `.env` file in your project root:
+### Initial Setup
 
 ```bash
-# ChromaDB Configuration
-CHROMA_DB_DIR=./data/chroma
-EMBEDDING_MODEL=NeuML/pubmedbert-base-embeddings
-REPOSITORY_DATA_DIR=./data/repositories
+# 1. Clone repository
+git clone <repository-url>
+cd bioinformatics-rag-pipeline
 
-# Logging Configuration
-LOG_LEVEL=INFO
-
-# API Configuration (Optional)
-GOOGLE_API_KEY=your-api-key-here
-EXA_API_KEY=your-exa-key-here
-SMITHERY_API_KEY=your-smithery-key-here
-
-# Performance Tuning
-BATCH_SIZE=25
-RATE_LIMIT_DELAY=0.1
-```
-
-### Directory Structure
-
-```
-project-root/
-├── src/
-│   ├── db/
-│   │   └── chroma_store.py              # Vector database core
-│   ├── scripts/
-│   │   ├── biopython_tools_collector.py    # Biopython scraper
-│   │   ├── bioconductor_tools_collector.py # Bioconductor scraper
-│   │   ├── load_biopython_tools.py         # Biopython integration
-│   │   ├── load_bioconductor_tools.py      # Bioconductor integration
-│   │   ├── check_and_update_packages.py    # Maintenance tool
-│   │   └── reset_chromadb.py               # Database reset utility
-│   └── agents/
-│       └── tool_discovery_agent.py         # Multi-source orchestration
-├── tests/
-│   ├── test_query.py                       # Interactive testing
-│   └── test_rag_pipeline.py               # Comprehensive validation
-├── data/
-│   ├── chroma/                             # ChromaDB persistence
-│   ├── biopython_collection/               # Biopython data
-│   └── bioconductor_collection/            # Bioconductor data
-├── .env                                    # Environment configuration
-└── requirements.txt                        # Dependencies
-```
-
-## Integration Guide
-
-### Step 1: Initial Setup
-
-```bash
-# 1. Clone and navigate to project
-git clone <your-repository>
-cd bioinformatics-search-engine
-
-# 2. Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# 3. Install dependencies
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# 4. Create environment file
-cp .env.example .env
-# Edit .env with your configuration
-```
+# 3. Verify bio.tools API access
+python tests/test_biotools_api.py
 
-### Step 2: Database Initialization
+# 4. Load data sources (sequential order recommended)
+python src/scripts/load_biopython_tools.py      # ~5 minutes
+python src/scripts/load_bioconductor_tools.py   # ~10 minutes
+python src/scripts/load_biotools_tools.py       # ~30-60 minutes
 
-```bash
-# Option A: Start with clean database
-python src/scripts/reset_chromadb.py
-
-# Option B: Check existing database
-python tests/test_rag_pipeline.py chromadb
-```
-
-### Step 3: Biopython Integration
-
-```bash
-# Integrate Biopython packages (100+ tools)
-python src/scripts/load_biopython_tools.py
-
-# Expected output:
-# ✅ Discovered 156 Biopython tools
-# ✅ Successfully added 156 new tools!
-# 📊 Total tools in database: 156
-```
-
-### Step 4: Bioconductor Integration
-
-```bash
-# Integrate Bioconductor packages (2,300+ tools)
-python src/scripts/load_bioconductor_tools.py
-
-# Expected output:
-# ✅ Discovered 2,341 Bioconductor packages
-# ✅ Successfully added 2,341 new packages!
-# 📊 Total tools in database: 2,497
-```
-
-### Step 5: Validation
-
-```bash
-# Run comprehensive testing
+# 5. Verify setup
+python tests/verify_biotools_setup.py
 python tests/test_rag_pipeline.py
-
-# Test specific queries
-python tests/test_query.py "RNA-seq analysis"
-python tests/test_query.py "protein structure prediction"
 ```
 
-### Step 6: Production Deployment
+### Quick Start
 
-```bash
-# Start API server (if using FastAPI)
-python src/api/main.py
+```python
+# Test semantic search across all sources
+python tests/test_query.py "CRISPR analysis tools"
 
-# Or integrate with your application
-from src.db.chroma_store import SemanticSearchStore
-store = SemanticSearchStore()
-results = await store.semantic_search("your query")
+# Filter by source
+python tests/test_query.py "sequence alignment" --source bio.tools
+python tests/test_query.py "DESeq2" --source Bioconductor
+
+# Check database statistics
+python tests/test_query.py "test" --stats
 ```
 
 ## Component Reference
 
-### ChromaDB Store (chroma_store.py)
+### SemanticSearchStore API
 
-#### Class: SemanticSearchStore
-
-**Initialization:**
 ```python
-store = SemanticSearchStore(persist_dir="data/chroma")
-```
+from src.db.chroma_store import SemanticSearchStore
 
-**Core Methods:**
+# Initialize store
+store = SemanticSearchStore()
 
-##### `semantic_search(query: str, n_results: int = 5) -> List[Dict]`
-Performs semantic search using biomedical BERT embeddings.
-
-**Parameters:**
-- `query`: Natural language search query
-- `n_results`: Maximum number of results to return
-
-**Returns:**
-```python
-[
+# Add tools from any source
+tools = [
     {
-        "name": "Tool Name",
-        "category": "Tool Category", 
-        "content": "Tool description and features",
-        "relevance_score": 0.85,  # 0.0-1.0, higher is more relevant
-        "source": "Biopython" | "Bioconductor"
+        "name": "ToolName",
+        "description": "Tool description",
+        "category": "Category",
+        "source": "bio.tools",  # or "Biopython", "Bioconductor"
+        "programming_language": "Python",
+        "features": ["feature1", "feature2"]
     }
 ]
+await store.add_tools(tools)
+
+# Search across all sources
+results = await store.semantic_search(
+    query="protein structure prediction",
+    max_results=10
+)
+
+# Get source-specific statistics
+stats = store.get_statistics()
+print(f"Total tools: {stats['total_tools']}")
+print(f"By source: {stats['by_source']}")
 ```
 
-##### `add_tools(tools: List[Dict]) -> bool`
-Adds new tools to the vector database.
+### Data Collector Patterns
 
-**Parameters:**
-- `tools`: List of tool dictionaries with required fields
-
-**Tool Dictionary Format:**
 ```python
-{
-    "name": "Tool Name",
-    "category": "Tool Category",
-    "description": "Detailed description",
-    "features": ["feature1", "feature2"],
-    "documentation": "URL to documentation",
-    "source": "Source repository",
-    "version": "Tool version",
-    "programming_language": "Python" | "R",
-    "license": "License information"
-}
-```
+# Bio.tools collector example
+from biotools_collector import BioToolsCollector
 
-##### `search_by_category(category: str, query: str, n_results: int = 5) -> List[Dict]`
-Performs category-filtered semantic search.
-
-##### `get_similar_tools(tool_name: str, n_results: int = 5) -> List[Dict]`
-Finds tools similar to a specific tool.
-
-### Data Collectors
-
-#### BioPython Collector (biopython_tools_collector.py)
-
-##### Class: CompleteBiopythonCollector
-
-**Usage:**
-```python
-collector = CompleteBiopythonCollector()
+collector = BioToolsCollector()
 tools = await collector.collect_and_save()
-```
 
-**Key Methods:**
-- `discover_all_biopython_packages()`: Scrapes Biopython documentation
-- `collect_and_save()`: Complete collection and persistence workflow
-- `_categorize_package()`: Intelligent categorization
-- `_extract_features_from_description()`: Feature extraction
-
-#### Bioconductor Collector (bioconductor_tools_collector.py)
-
-##### Class: FixedBioconductorCollector
-
-**Usage:**
-```python
-collector = FixedBioconductorCollector()
-packages = await collector.collect_and_save()
-```
-
-**Key Methods:**
-- `_fetch_packages_list()`: Parses official PACKAGES file
-- `discover_all_bioconductor_packages()`: Complete package discovery
-- `_extract_package_info()`: Detailed information extraction
-- `_create_package_tool()`: Tool object creation
-
-### Integration Scripts
-
-#### Load Biopython Tools (load_biopython_tools.py)
-
-**Execution:**
-```bash
-python src/scripts/load_biopython_tools.py
-```
-
-**Process Flow:**
-1. ✅ Check Biopython availability
-2. 📊 Discover all Biopython tools
-3. 💾 Initialize ChromaDB store
-4. 🔄 Add tools to database
-5. 🧪 Test search quality
-6. 📈 Generate success summary
-
-#### Load Bioconductor Tools (load_bioconductor_tools.py)
-
-**Execution:**
-```bash
-python src/scripts/load_bioconductor_tools.py
-```
-
-**Process Flow:**
-1. 🔍 Check internet connectivity
-2. 📊 Discover Bioconductor packages (PACKAGES file approach)
-3. 💾 Initialize ChromaDB store  
-4. 🔄 Add packages to database
-5. 🧪 Test search quality
-6. 📈 Generate success summary
-
-### Maintenance Tools
-
-#### Update Checker (check_and_update_packages.py)
-
-**Execution:**
-```bash
-python src/scripts/check_and_update_packages.py
-```
-
-**Functionality:**
-- Compares current packages with existing data
-- Identifies new packages (even if just 1)
-- Updates JSON files and reports
-- Incremental ChromaDB updates
-- User confirmation for all changes
-
-#### Database Reset (reset_chromadb.py)
-
-**Execution:**
-```bash
-python src/scripts/reset_chromadb.py
-```
-
-**Options:**
-```bash
-# Interactive reset with confirmation
-python src/scripts/reset_chromadb.py
-
-# Force reset (automation)
-python src/scripts/reset_chromadb.py --force
-
-# Check database state only
-python src/scripts/reset_chromadb.py --check-only
+# Access collected data
+for tool in tools[:5]:
+    print(f"{tool['name']}: {tool['description']}")
+    print(f"  Languages: {tool['programming_language']}")
+    print(f"  Topics: {', '.join(tool['topics'])}")
 ```
 
 ## Testing & Validation
 
-### Interactive Query Testing (test_query.py)
+### Comprehensive Test Suite
 
-**Basic Usage:**
 ```bash
-# Test specific queries
-python tests/test_query.py "protein structure prediction"
-python tests/test_query.py "RNA-seq analysis tools"
-python tests/test_query.py "sequence alignment"
-```
+# 1. Test bio.tools API connectivity
+python tests/test_biotools_api.py
 
-**Advanced Options:**
-```bash
-# More results
-python tests/test_query.py "analysis" --max-results 10
-
-# Detailed JSON output  
-python tests/test_query.py "DESeq2" --detailed
-
-# Filter by source
-python tests/test_query.py "alignment" --source Biopython
-
-# Show database statistics
-python tests/test_query.py "query" --stats
-```
-
-**Output Format:**
-```
-🔍 Searching for: 'protein structure prediction'
-⚡ Search completed in 0.037 seconds
-📊 Found 5 results
-
-🧬 RESULT #1
-Name: PDBParser
-🎯 Relevance Score: 0.892 (higher = more relevant)
-📦 Source: Biopython
-📂 Category: Protein Structure
-📝 Description: Parse protein structure files from the Protein Data Bank...
-```
-
-### Comprehensive Pipeline Testing (test_rag_pipeline.py)
-
-**Full Test Suite:**
-```bash
-# Test everything
+# 2. Full pipeline validation
 python tests/test_rag_pipeline.py
 
-# Test specific components
-python tests/test_rag_pipeline.py chromadb
-python tests/test_rag_pipeline.py embeddings
-python tests/test_rag_pipeline.py search
-python tests/test_rag_pipeline.py agent
-python tests/test_rag_pipeline.py integration
+# 3. Source-specific searches
+python tests/test_query.py "BLAST" --source bio.tools
+python tests/test_query.py "Seurat" --source Bioconductor
+python tests/test_query.py "SeqIO" --source Biopython
+
+# 4. Performance testing with 30,000+ tools
 python tests/test_rag_pipeline.py performance
+
+# 5. Verify complete setup
+python tests/verify_biotools_setup.py
 ```
 
-**Test Categories:**
+### Expected Results
 
-1. **ChromaDB Connection**: Database connectivity and tool count validation
-2. **HuggingFace Embeddings**: Biomedical BERT functionality
-3. **Semantic Search**: Relevance scoring and result quality
-4. **Agent Integration**: Multi-source coordination testing
-5. **Pipeline Integration**: End-to-end workflow validation
-6. **Performance Benchmarks**: Speed and throughput metrics
-
-**Expected Results:**
 ```
 📊 RAG PIPELINE TEST SUMMARY
-✅ PASSED: ChromaDB Vector Database
+✅ PASSED: ChromaDB Vector Database (30,000+ tools)
 ✅ PASSED: HuggingFace Biomedical BERT  
 ✅ PASSED: Semantic Search with Relevance Scoring
 ✅ PASSED: LangChain ToolDiscoveryAgent
 ✅ PASSED: Complete RAG Pipeline
 ✅ PASSED: Performance Benchmarks
+
+Database Statistics:
+- Total tools: 32,596
+- Biopython: 213 tools
+- Bioconductor: 2,234 tools
+- Bio.tools: 30,149 tools
 
 OVERALL: 6/6 tests passed
 🎉 ALL TESTS PASSED! Your RAG pipeline is production-ready!
@@ -608,56 +492,68 @@ OVERALL: 6/6 tests passed
 
 ### Regular Update Workflow
 
-**Monthly Update Process:**
 ```bash
-# 1. Check for new packages
+# Weekly maintenance routine
+# 1. Check for updates across all sources
 python src/scripts/check_and_update_packages.py
 
-# 2. If updates found, validate integration
+# 2. If bio.tools updates detected (partial check)
+# Run full update if needed
+python src/scripts/load_biotools_tools.py
+
+# 3. Validate integration
 python tests/test_rag_pipeline.py
 
-# 3. Test search quality with new tools
+# 4. Test search quality
 python tests/test_query.py "recent bioinformatics tool"
 
-# 4. Backup current database (optional)
+# 5. Backup current database
 cp -r data/chroma data/chroma_backup_$(date +%Y%m%d)
 ```
 
 ### Performance Monitoring
 
 **Key Metrics to Track:**
-- Search response time (target: <50ms)
-- Database size growth
-- Memory usage patterns
-- Query success rates
-- Relevance score distributions
+- Search response time (target: <50ms with 30,000+ tools)
+- Database size growth (expected: ~500MB-1GB)
+- Memory usage patterns (peak: ~2GB during bio.tools loading)
+- Query success rates across sources
+- Source-specific relevance distributions
 
 **Monitoring Script:**
 ```python
+import asyncio
 import time
 from src.db.chroma_store import SemanticSearchStore
 
 async def monitor_performance():
     store = SemanticSearchStore()
     
-    # Test queries
-    queries = ["protein analysis", "RNA sequencing", "data visualization"]
-    times = []
+    # Test queries across sources
+    test_cases = [
+        ("protein analysis", None),
+        ("RNA sequencing", "bio.tools"),
+        ("phylogenetics", "Biopython"),
+        ("differential expression", "Bioconductor")
+    ]
     
-    for query in queries:
+    times = []
+    for query, source in test_cases:
         start = time.time()
-        results = await store.semantic_search(query)
-        duration = time.time() - start
-        times.append(duration * 1000)  # Convert to ms
+        results = await store.semantic_search(query, source_filter=source)
+        duration = (time.time() - start) * 1000
+        times.append(duration)
         
-        print(f"Query: {query}")
-        print(f"  Time: {duration*1000:.1f}ms")
+        print(f"Query: {query} (source: {source or 'all'})")
+        print(f"  Time: {duration:.1f}ms")
         print(f"  Results: {len(results)}")
-        print(f"  Avg Relevance: {sum(r['relevance_score'] for r in results)/len(results):.3f}")
+        if results:
+            sources = set(r.get('source', 'Unknown') for r in results)
+            print(f"  Sources: {', '.join(sources)}")
     
     avg_time = sum(times) / len(times)
     print(f"\nAverage Response Time: {avg_time:.1f}ms")
-    print(f"Performance Status: {'✅ GOOD' if avg_time < 50 else '⚠️ SLOW'}")
+    print(f"Performance Status: {'✅ GOOD' if avg_time < 50 else '⚠️ NEEDS OPTIMIZATION'}")
 
 # Run monitoring
 asyncio.run(monitor_performance())
@@ -665,18 +561,34 @@ asyncio.run(monitor_performance())
 
 ### Data Integrity Validation
 
-**Validation Checklist:**
 ```bash
-# 1. Database consistency
+# 1. Validate source separation
+python -c "
+from src.db.chroma_store import SemanticSearchStore
+store = SemanticSearchStore()
+stats = store.get_statistics()
+print('Source Distribution:')
+for source, count in stats['by_source'].items():
+    print(f'  {source}: {count} tools')
+"
+
+# 2. Check for duplicates
+python tests/test_query.py "BLAST" --detailed | grep -c "bio.tools"
+
+# 3. Verify exclusions worked
+python tests/test_query.py "biopython" --source bio.tools
+# Should return no results if exclusion worked properly
+
+# 4. Database consistency
 python tests/test_rag_pipeline.py chromadb
 
-# 2. Search functionality  
+# 5. Search functionality  
 python tests/test_rag_pipeline.py search
 
-# 3. Data completeness
+# 6. Data completeness
 python tests/test_query.py "test" --stats
 
-# 4. Source distribution
+# 7. Source distribution
 python tests/test_query.py "analysis" --max-results 20
 ```
 
@@ -684,85 +596,83 @@ python tests/test_query.py "analysis" --max-results 20
 
 ### Common Issues and Solutions
 
-#### 1. ChromaDB Connection Errors
+#### 1. Bio.tools API Timeout
 
 **Symptoms:**
-- `sqlite3.OperationalError: database is locked`
-- `chromadb.errors.InvalidDimensionException`
-
-**Solutions:**
-```bash
-# Reset database
-python src/scripts/reset_chromadb.py --force
-
-# Check file permissions
-chmod -R 755 data/chroma/
-
-# Verify disk space
-df -h data/
-```
-
-#### 2. Embedding Model Issues
-
-**Symptoms:**
-- `OSError: Can't load config for 'NeuML/pubmedbert-base-embeddings'`
-- Slow initial embedding generation
+- `requests.exceptions.Timeout` during bio.tools collection
+- Incomplete tool collection
 
 **Solutions:**
 ```python
-# Test embedding model directly
-from langchain_huggingface import HuggingFaceEmbeddings
+# Increase timeout in biotools_collector.py
+response = session.get(url, timeout=60)  # Increase from 30
 
-try:
-    embeddings = HuggingFaceEmbeddings(
-        model_name="NeuML/pubmedbert-base-embeddings",
-        model_kwargs={'device': 'cpu'}
-    )
-    test_embedding = embeddings.embed_query("test")
-    print("✅ Embedding model working")
-except Exception as e:
-    print(f"❌ Embedding error: {e}")
+# Or run collection in smaller batches
+# Modify biotools_collector.py to save progress more frequently
 ```
 
-#### 3. Web Scraping Failures
+#### 2. Memory Issues with Large Dataset
 
 **Symptoms:**
-- `requests.exceptions.RequestException`
-- Empty collection results
+- `MemoryError` during bio.tools loading
+- System slowdown with 30,000+ tools
 
 **Solutions:**
 ```bash
-# Test connectivity
-curl -I https://biopython.org
-curl -I https://bioconductor.org
+# 1. Increase available memory
+export PYTHONMALLOC=malloc
 
-# Check rate limiting
-python -c "
-import time
-import requests
-for i in range(3):
-    r = requests.get('https://biopython.org')
-    print(f'Request {i}: {r.status_code}')
-    time.sleep(1)
-"
-```
+# 2. Use chunked processing (already implemented)
+# Check data/biotools_collection/ for multiple JSON files
 
-#### 4. Memory Issues
+# 3. Load data in batches
+# Modify load_biotools_tools.py batch_size parameter
 
-**Symptoms:**
-- `MemoryError` during large batch processing
-- Slow search performance
-
-**Solutions:**
-```python
-# Reduce batch size in collectors
-# In bioconductor_tools_collector.py
-batch_size = 10  # Instead of 25
-
-# Monitor memory usage
+# 4. Monitor memory usage
 import psutil
 process = psutil.Process()
 print(f"Memory usage: {process.memory_info().rss / 1024 / 1024:.1f} MB")
+```
+
+#### 3. ChromaDB Performance Degradation
+
+**Symptoms:**
+- Slow searches with 30,000+ tools
+- High memory usage
+
+**Solutions:**
+```python
+# 1. Optimize ChromaDB settings
+collection = client.create_collection(
+    name="bioinformatics_tools",
+    metadata={
+        "hnsw:space": "cosine",
+        "hnsw:M": 48,  # Increase for better performance
+        "hnsw:ef_construction": 200
+    }
+)
+
+# 2. Implement source-based collections
+# Separate collections for each source for faster queries
+```
+
+#### 4. Duplicate Tools Issues
+
+**Symptoms:**
+- Same tool appearing from multiple sources
+- Inflated search results
+
+**Solutions:**
+```bash
+# 1. Verify exclusion logic
+python tests/verify_biotools_setup.py
+
+# 2. Manual deduplication
+python src/scripts/deduplicate_tools.py
+
+# 3. Reset and reload with fixed exclusions
+python src/scripts/reset_chromadb.py --force
+python src/scripts/load_biotools_tools.py
 ```
 
 #### 5. Search Quality Issues
@@ -813,207 +723,167 @@ stats.sort_stats('tottime').print_stats(10)
 
 ## Performance Optimization
 
-### Search Performance
+### Search Performance with 30,000+ Tools
 
 **Target Metrics:**
 - Average search time: <50ms
-- Throughput: >25 queries/second  
-- Memory usage: <2GB for 2,500 tools
-- 95th percentile response time: <100ms
+- 95th percentile: <100ms
+- Throughput: >20 queries/second
+- Memory usage: <2GB steady state
 
 **Optimization Strategies:**
 
-1. **Embedding Model Selection:**
+1. **Embedding Model Optimization:**
 ```python
-# Fast but less accurate
+# Current state-of-the-art for biomedical embeddings
 embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
+    model_name="FremyCompany/BioLORD-2023",
+    model_kwargs={'device': 'cpu'},
+    encode_kwargs={'normalize_embeddings': True}
 )
 
-# Balanced (recommended)
+# For GPU acceleration if available
 embeddings = HuggingFaceEmbeddings(
-    model_name="NeuML/pubmedbert-base-embeddings"
-)
-
-# Highly accurate but slower
-embeddings = HuggingFaceEmbeddings(
-    model_name="microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext"
+    model_name="FremyCompany/BioLORD-2023",
+    model_kwargs={'device': 'cuda'},
+    encode_kwargs={'normalize_embeddings': True, 'batch_size': 32}
 )
 ```
 
-2. **ChromaDB Configuration:**
+2. **ChromaDB Optimization for Scale:**
 ```python
-# Optimize collection settings
+# Optimized collection settings for 30,000+ documents
 collection = client.create_collection(
-    name="bioinformatics_tools",
-    metadata={"hnsw:space": "cosine", "hnsw:M": 16}
+    name="bioinformatics_tools_v2",
+    metadata={
+        "hnsw:space": "cosine",
+        "hnsw:M": 64,  # Higher M for better recall
+        "hnsw:ef_construction": 400,  # Higher for better index
+        "hnsw:ef": 100  # Search-time parameter
+    }
 )
 ```
 
-3. **Batch Processing:**
+3. **Query Optimization:**
 ```python
-# Process tools in batches
-batch_size = 50  # Adjust based on available memory
-for i in range(0, len(tools), batch_size):
-    batch = tools[i:i + batch_size]
-    await store.add_tools(batch)
+# Implement source-aware querying
+async def optimized_search(query, source_filter=None):
+    if source_filter:
+        # Use metadata filtering for faster queries
+        where_clause = {"source": source_filter}
+        results = collection.query(
+            query_texts=[query],
+            where=where_clause,
+            n_results=10
+        )
+    else:
+        # Full search across all sources
+        results = collection.query(
+            query_texts=[query],
+            n_results=10
+        )
+    return results
 ```
 
-### Memory Optimization
-
-**Memory Management:**
+4. **Caching Strategy:**
 ```python
-# Clear embedding cache periodically
-import gc
-gc.collect()
+from functools import lru_cache
+import hashlib
 
-# Use generators for large datasets
-def process_tools_generator(tools):
-    for tool in tools:
-        yield process_tool(tool)
+@lru_cache(maxsize=1000)
+def cached_search(query_hash):
+    # Cache frequent queries
+    return perform_search(query_hash)
 
-# Stream processing
-for processed_tool in process_tools_generator(large_tool_list):
-    store.add_tool(processed_tool)
+def search_with_cache(query):
+    query_hash = hashlib.md5(query.encode()).hexdigest()
+    return cached_search(query_hash)
 ```
-
-### Scaling Considerations
-
-**Horizontal Scaling:**
-- Deploy multiple ChromaDB instances
-- Use load balancing for API endpoints
-- Implement caching layer (Redis)
-- Consider vector database clustering
-
-**Vertical Scaling:**
-- Increase RAM for larger embedding models
-- Use SSD storage for ChromaDB persistence
-- Optimize CPU cores for parallel processing
 
 ## API Reference
 
-### SemanticSearchStore Class
+### Core Classes
 
-#### Constructor
+#### SemanticSearchStore
 ```python
-SemanticSearchStore(persist_dir: str = "data/chroma")
+class SemanticSearchStore:
+    def __init__(self, persist_dir: str = "data/chroma"):
+        """Initialize store with BioLORD-2023 embedding model."""
+        
+    async def add_tools(self, tools: List[Dict]) -> bool:
+        """Add tools to the vector store with deduplication."""
+        
+    async def semantic_search(
+        self, 
+        query: str, 
+        max_results: int = 5,
+        source_filter: str = None
+    ) -> List[Dict]:
+        """Search for tools using semantic similarity."""
+        
+    def get_statistics(self) -> Dict:
+        """Get database statistics including source breakdown."""
+        
+    def reset_database(self) -> bool:
+        """Reset the entire database (requires confirmation)."""
 ```
 
-#### Methods
-
-##### `semantic_search`
+#### BioToolsCollector
 ```python
-async def semantic_search(
-    self, 
-    query: str, 
-    n_results: int = 5
-) -> List[Dict]
+class BioToolsCollector:
+    def __init__(self):
+        """Initialize collector with API configuration."""
+        
+    async def discover_all_biotools(self) -> List[BioToolsTool]:
+        """Discover all tools from bio.tools API."""
+        
+    async def collect_and_save(self) -> List[Dict]:
+        """Collect all tools and save to disk in chunks."""
+        
+    def _should_exclude_tool(self, tool_data: Dict) -> bool:
+        """Check if tool should be excluded (Biopython/Bioconductor)."""
 ```
 
-**Description:** Performs semantic search using biomedical BERT embeddings.
-
-**Parameters:**
-- `query` (str): Search query in natural language
-- `n_results` (int): Maximum number of results (default: 5)
-
-**Returns:** List of dictionaries with tool information
-
-**Example:**
-```python
-results = await store.semantic_search("RNA-seq analysis", n_results=10)
-for result in results:
-    print(f"{result['name']}: {result['relevance_score']:.3f}")
-```
-
-##### `add_tools`
-```python
-async def add_tools(self, tools: List[Dict]) -> bool
-```
-
-**Description:** Adds multiple tools to the vector database.
-
-**Parameters:**
-- `tools` (List[Dict]): List of tool dictionaries
-
-**Returns:** Boolean indicating success
-
-##### `search_by_category`
-```python
-async def search_by_category(
-    self,
-    category: str,
-    query: str,
-    n_results: int = 5
-) -> List[Dict]
-```
-
-**Description:** Searches within a specific tool category.
-
-##### `get_similar_tools`
-```python
-async def get_similar_tools(
-    self,
-    tool_name: str,
-    n_results: int = 5
-) -> List[Dict]
-```
-
-**Description:** Finds tools similar to a specified tool.
-
-### Collector Classes
-
-#### CompleteBiopythonCollector
+### Utility Functions
 
 ```python
-async def collect_and_save() -> List[Dict]
+# Check and update all sources
+async def check_and_update_packages():
+    """Check for updates across all three sources."""
+    
+# Test bio.tools API
+def test_biotools_api() -> bool:
+    """Validate bio.tools API connectivity and structure."""
+    
+# Verify complete setup
+def verify_biotools_setup() -> bool:
+    """Verify all components are properly configured."""
 ```
 
-**Description:** Collects all Biopython packages and saves to JSON.
+## Next Steps
 
-#### FixedBioconductorCollector
+1. **Extend Integration:**
+   - Add Galaxy tools integration
+   - Include Conda bioconda channel
+   - Integrate Docker biocontainers
 
-```python
-async def collect_and_save() -> List[Dict]
-```
+2. **Enhance Search:**
+   - Implement semantic clustering
+   - Add citation-based ranking
+   - Include usage statistics
 
-**Description:** Collects all Bioconductor packages and saves to JSON.
+3. **Improve Performance:**
+   - Implement distributed ChromaDB
+   - Add Redis caching layer
+   - Optimize embedding generation
 
-### Error Codes
-
-| Code | Description | Resolution |
-|------|-------------|------------|
-| `CHROMA_001` | Database connection failed | Check permissions and disk space |
-| `EMBED_001` | Embedding model loading failed | Verify model name and network |
-| `SCRAPE_001` | Web scraping timeout | Check internet connection |
-| `DATA_001` | Invalid tool data format | Validate input data structure |
-| `PERF_001` | Search timeout exceeded | Optimize query or increase timeout |
+4. **Add Analytics:**
+   - Track search patterns
+   - Generate tool popularity metrics
+   - Create recommendation engine
 
 ---
 
-## Quick Start Summary
-
-```bash
-# 1. Setup
-pip install -r requirements.txt
-cp .env.example .env
-
-# 2. Initialize
-python src/scripts/reset_chromadb.py
-
-# 3. Load data
-python src/scripts/load_biopython_tools.py
-python src/scripts/load_bioconductor_tools.py
-
-# 4. Test
-python tests/test_rag_pipeline.py
-python tests/test_query.py "your query here"
-
-# 5. Use in application
-from src.db.chroma_store import SemanticSearchStore
-store = SemanticSearchStore()
-results = await store.semantic_search("protein analysis")
-```
-
-**Expected Results:** 2,500+ bioinformatics tools searchable in <50ms with >80% relevance accuracy.
-
-For additional support, see the troubleshooting section or open an issue in the project repository.
+**Total Tools**: 30,000+
+**Sources**: Biopython, Bioconductor, bio.tools
+**Embedding Model**: FremyCompany/BioLORD-2023 

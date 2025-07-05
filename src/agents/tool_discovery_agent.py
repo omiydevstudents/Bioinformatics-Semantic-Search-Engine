@@ -26,7 +26,7 @@ class ToolDiscoveryAgent:
     Agent for discovering bioinformatics tools using real ChromaDB and MCP components.
     Enhanced with Google Gemini for intelligent analysis and ranking.
     """
-
+    
     def __init__(self):
         self.mcp_client = EnhancedMCPClient()  # Enhanced MCP client with all fixes
         self.chroma_store = SemanticSearchStore()  # Real ChromaDB store
@@ -178,18 +178,26 @@ class ToolDiscoveryAgent:
 
     async def _enhanced_analysis_with_gemini(self, query: str, chroma_results: list, web_tools: list, papers: list, mcp_tools: list) -> str:
         """
-        Use Gemini AI to provide intelligent analysis and recommendations.
+        Enhanced analysis using Gemini AI with dynamic, flexible prompting.
         """
+        if not self.use_gemini:
+            return self._basic_analysis(
+                [t["name"] for t in chroma_results[:5]],
+                [t.get("name", "Unknown") for t in web_tools],
+                papers,
+                mcp_tools,
+                []
+            )
+
         try:
-            # Prepare data for Gemini analysis
+            # Prepare data for analysis
             analysis_data = {
-                "query": query,
                 "chroma_tools": [
                     {
                         "name": tool["name"],
                         "category": tool.get("category", "Unknown"),
-                        "relevance_score": tool.get("relevance_score", 0),
-                        "description": tool.get("content", "")[:200]
+                        "relevance_score": tool.get("relevance_score", 0.0),
+                        "description": tool.get("description", "")[:200]
                     }
                     for tool in chroma_results[:5]
                 ],
@@ -212,23 +220,85 @@ class ToolDiscoveryAgent:
                 "mcp_tools": mcp_tools[:5]
             }
 
-            # Create prompt for Gemini
+            # Dynamic, flexible prompt that adapts to any query type
+            chroma_tools_str = "\n".join([f"• {tool['name']} ({tool['category']}) - Score: {tool['relevance_score']:.2f}\n  Description: {tool['description']}" for tool in analysis_data['chroma_tools']])
+            web_tools_str = "\n".join([f"• {tool['name']} - {tool['url']}\n  Description: {tool['description']}" for tool in analysis_data['web_tools']])
+            papers_str = "\n".join([f"• {paper['title']}\n  Authors: {', '.join(paper['authors'][:3]) if paper['authors'] else 'Unknown'}\n  Abstract: {paper['abstract'][:150]}..." for paper in analysis_data['papers']])
+            mcp_tools_str = "\n".join([f"• {tool}" for tool in analysis_data['mcp_tools']])
             prompt = f"""
-You are a bioinformatics expert analyzing tool discovery results. Please provide an intelligent analysis of the following results for the query: "{query}"
+You are an expert bioinformatics analyst providing comprehensive tool recommendations. Analyze the following results for this query: "{query}"
 
-Results Summary:
-- ChromaDB Tools: {len(analysis_data['chroma_tools'])} local tools
-- Web Tools: {len(analysis_data['web_tools'])} web-discovered tools  
-- Scientific Papers: {len(analysis_data['papers'])} relevant papers
-- MCP Tools: {len(analysis_data['mcp_tools'])} MCP server tools
+AVAILABLE INFORMATION:
 
-Please provide:
-1. A brief analysis of result quality and relevance
-2. Top 3 most relevant tools/papers with brief explanations
-3. Any notable gaps or recommendations
-4. Overall assessment (excellent/good/fair/poor)
+Local Database Tools:
+{chroma_tools_str}
 
-Keep your response concise but insightful (max 300 words).
+Web Tools:
+{web_tools_str}
+
+Scientific Papers:
+{papers_str}
+
+MCP Tools:
+{mcp_tools_str}
+
+ANALYSIS INSTRUCTIONS:
+
+1. **UNDERSTAND THE QUERY**: First, analyze what the user is actually looking for. Consider:
+   - The specific bioinformatics task or problem
+   - The type of data they're working with
+   - The scale and complexity of their analysis
+   - Any specific requirements or constraints
+
+2. **EVALUATE AVAILABLE TOOLS**: Assess the tools that are actually present in the results:
+   - Identify which tools are most relevant to the query
+   - Recognize tool variations and aliases (e.g., "iqtree" = "IQ-TREE", "MACSr" = "MACS2 R version")
+   - Evaluate the quality and comprehensiveness of the available tools
+   - Consider how well the tools address the user's needs
+
+3. **PROVIDE STRUCTURED ANALYSIS**:
+
+**QUALITY ASSESSMENT:**
+- Rate the overall quality of results (excellent/good/fair/poor)
+- Explain what makes the results good or what's missing
+- Be specific about the actual tools found and their capabilities
+- Don't criticize missing tools that aren't in the results - focus on what's available
+
+**TOP RECOMMENDATIONS:**
+- Select the 3 most relevant tools from the ACTUAL results
+- For each tool, explain:
+  * Why it's suitable for this specific query
+  * Key features and capabilities
+  * Typical use cases and workflows
+  * Any limitations or considerations
+
+**GAPS ANALYSIS:**
+- Identify what's missing based on the query requirements
+- Suggest complementary tools or approaches
+- Highlight workflow gaps that the current tools don't address
+- Be constructive about what could improve the results
+
+**ACTIONABLE RECOMMENDATIONS:**
+- Provide specific next steps using the available tools
+- Suggest tool combinations for complete workflows
+- Recommend additional resources or approaches
+- Give step-by-step guidance where possible
+
+**OVERALL ASSESSMENT:**
+- Summarize the findings and recommendations
+- Indicate confidence level in the suggestions
+- Suggest follow-up actions or queries
+
+IMPORTANT GUIDELINES:
+- Focus ONLY on the tools that are actually present in the results
+- Don't recommend tools that aren't in the provided data
+- Be specific and technical in your analysis
+- Adapt your analysis style to match the complexity of the query
+- If the query is broad, provide a comprehensive overview
+- If the query is specific, focus on detailed technical analysis
+- Always ground your recommendations in the actual tools available
+
+Provide a comprehensive, well-structured analysis that directly addresses the user's query using the tools and information provided.
 """
 
             # Get Gemini analysis
@@ -317,7 +387,7 @@ Return ONLY the enhanced query (max 100 words). Make it more specific and compre
             print(f"⚠️  Query enhancement failed: {e}")
             return user_query
 
-    async def discover_tools_enhanced(self, query: str) -> dict:
+    async def discover_tools_enhanced(self, query: str, max_results: int = 10) -> dict:
         """
         Enhanced tool discovery with Gemini query enhancement.
         """
@@ -325,7 +395,7 @@ Return ONLY the enhanced query (max 100 words). Make it more specific and compre
         enhanced_query = await self.enhance_query_with_gemini(query)
         
         # Use enhanced query for discovery
-        results = await self.discover_tools(enhanced_query)
+        results = await self.discover_tools(enhanced_query, max_results)
         
         # Add original query info
         results["original_query"] = query
@@ -370,12 +440,17 @@ Return ONLY the enhanced query (max 100 words). Make it more specific and compre
                     "source": "Web Search"
                 })
 
+            # Fix: assign joined tool list to a variable to avoid backslash in f-string expression
+            tool_list_str = "\n".join([
+                f"- {tool['name']} ({tool['category']}): {tool['description']}" for tool in available_tools[:10]
+            ])
+
             # Create workflow generation prompt
             prompt = f"""
 You are a bioinformatics expert. Generate a complete workflow for this task: "{task_description}"
 
 Available tools from our search:
-{chr(10).join([f"- {tool['name']} ({tool['category']}): {tool['description']}" for tool in available_tools[:10]])}
+{tool_list_str}
 
 Please create a detailed workflow with:
 1. **Input Requirements**: What data/files are needed
@@ -446,13 +521,16 @@ Keep it practical and actionable (max 500 words).
                 })
 
             # Create recommendation prompt
+            all_tools_str = "\n".join([
+                f"- {tool['name']} (Score: {tool['relevance_score']:.2f}, Category: {tool['category']}): {tool['description']}" for tool in all_tools[:15]
+            ])
             prompt = f"""
 You are a bioinformatics expert providing tool recommendations for: "{specific_task}"
 
 Constraints: {constraints if constraints else "None specified"}
 
 Available tools:
-{chr(10).join([f"- {tool['name']} (Score: {tool['relevance_score']:.2f}, Category: {tool['category']}): {tool['description']}" for tool in all_tools[:15]])}
+{all_tools_str}
 
 Please provide:
 1. **Top 3 Recommended Tools** with explanations for why they're best for this task

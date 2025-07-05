@@ -49,6 +49,12 @@ class SearchRequest(BaseModel):
     query: str
     max_results: Optional[int] = 10
 
+class FollowUpRequest(BaseModel):
+    original_query: str
+    follow_up_question: str
+    previous_results: Optional[Dict] = None
+    max_results: Optional[int] = 10
+
 class SearchResponse(BaseModel):
     success: bool
     query: str
@@ -60,6 +66,7 @@ class SearchResponse(BaseModel):
     search_time: float
     enhanced_with_gemini: bool
     quality_metrics: Optional[Dict] = None
+    follow_up_suggestions: Optional[List[str]] = None
 
 # Global agent instance
 agent = None
@@ -88,14 +95,21 @@ async def search_tools(request: SearchRequest) -> SearchResponse:
         if not agent:
             raise HTTPException(status_code=500, detail="Agent not initialized")
         
-        # Perform the Self-RAG enhanced search
-        result = await agent.discover_tools_self_rag(request.query)
+        # Perform the Self-RAG enhanced search with max_results parameter
+        max_results = request.max_results or 10
+        result = await agent.discover_tools_self_rag(request.query, max_results)
         
         # Calculate search time
         search_time = time.time() - start_time
         
         # Format the response for the web interface
-        formatted_response = format_response_for_web(result, request.query)
+        formatted_response = format_response_for_web(result, request.query, max_results)
+        
+        # Debug logging for follow-up suggestions
+        follow_up_suggestions = result.get("follow_up_suggestions", [])
+        print(f"🔍 Backend - Follow-up suggestions: {follow_up_suggestions}")
+        print(f"🔍 Backend - Follow-up suggestions type: {type(follow_up_suggestions)}")
+        print(f"🔍 Backend - Follow-up suggestions length: {len(follow_up_suggestions) if follow_up_suggestions else 0}")
         
         return SearchResponse(
             success=True,
@@ -107,7 +121,8 @@ async def search_tools(request: SearchRequest) -> SearchResponse:
             total_results=result.get("total_results", 0),
             search_time=search_time,
             enhanced_with_gemini=result.get("enhanced_with_gemini", False),
-            quality_metrics=result.get("quality_metrics", {})
+            quality_metrics=result.get("quality_metrics", {}),
+            follow_up_suggestions=follow_up_suggestions
         )
         
     except Exception as e:
@@ -116,6 +131,124 @@ async def search_tools(request: SearchRequest) -> SearchResponse:
             status_code=500, 
             detail=f"Search failed: {str(e)}"
         )
+
+@app.post("/api/followup", response_model=SearchResponse)
+async def follow_up_search(request: FollowUpRequest) -> SearchResponse:
+    """API endpoint for follow-up questions to improve search results."""
+    import time
+    start_time = time.time()
+    
+    try:
+        if not agent:
+            raise HTTPException(status_code=500, detail="Agent not initialized")
+        
+        # Create an improved query based on the follow-up question
+        improved_query = await create_improved_query_from_followup(
+            request.original_query, 
+            request.follow_up_question,
+            request.previous_results
+        )
+        
+        # Perform the Self-RAG enhanced search with the improved query
+        max_results = request.max_results or 10
+        result = await agent.discover_tools_self_rag(improved_query, max_results)
+        
+        # Calculate search time
+        search_time = time.time() - start_time
+        
+        # Format the response for the web interface
+        formatted_response = format_response_for_web(result, improved_query, max_results)
+        
+        # Debug logging for follow-up suggestions
+        follow_up_suggestions = result.get("follow_up_suggestions", [])
+        print(f"🔍 Backend - Follow-up suggestions: {follow_up_suggestions}")
+        print(f"🔍 Backend - Follow-up suggestions type: {type(follow_up_suggestions)}")
+        print(f"🔍 Backend - Follow-up suggestions length: {len(follow_up_suggestions) if follow_up_suggestions else 0}")
+        
+        # Add context about the follow-up improvement
+        formatted_response["response"] = f"**Follow-up Response:** Based on your feedback about '{request.follow_up_question}', I've refined the search to better address your needs.\n\n" + formatted_response["response"]
+        
+        return SearchResponse(
+            success=True,
+            query=improved_query,
+            response=formatted_response["response"],
+            analysis=formatted_response["analysis"],
+            tools=formatted_response["tools"],
+            sources=formatted_response["sources"],
+            total_results=result.get("total_results", 0),
+            search_time=search_time,
+            enhanced_with_gemini=result.get("enhanced_with_gemini", False),
+            quality_metrics=result.get("quality_metrics", {}),
+            follow_up_suggestions=follow_up_suggestions
+        )
+        
+    except Exception as e:
+        search_time = time.time() - start_time
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Follow-up search failed: {str(e)}"
+        )
+
+async def create_improved_query_from_followup(original_query: str, follow_up_question: str, previous_results: Optional[Dict] = None) -> str:
+    """
+    Create an improved query based on user's follow-up question and feedback.
+    
+    Args:
+        original_query: The original search query
+        follow_up_question: User's follow-up question or feedback
+        previous_results: Results from the previous search (if available)
+        
+    Returns:
+        Improved query that addresses the user's feedback
+    """
+    try:
+        # Use Gemini to create an improved query
+        if agent and agent.use_gemini and agent.gemini:
+            prompt = f"""
+You are an expert at improving bioinformatics tool discovery queries based on user feedback.
+
+ORIGINAL QUERY: {original_query}
+USER FOLLOW-UP/FEEDBACK: {follow_up_question}
+
+Your task is to create an improved query that addresses the user's feedback and provides better results.
+
+IMPROVEMENT STRATEGIES:
+1. **Add Specificity**: If the user wants more specific tools, add relevant terms
+2. **Expand Scope**: If the user wants broader coverage, include related concepts
+3. **Focus on Use Cases**: If the user mentions specific applications, include those
+4. **Add Technical Details**: If the user wants technical specifics, include relevant parameters
+5. **Include Workflow Context**: If the user mentions workflows, add related tools
+
+EXAMPLES:
+- Original: "ChIP-seq tools" + Follow-up: "I need tools for peak calling" → "ChIP-seq peak calling tools for identifying binding sites"
+- Original: "phylogenetic tools" + Follow-up: "I work with large datasets" → "phylogenetic tree construction tools for large datasets with maximum likelihood methods"
+- Original: "RNA-seq analysis" + Follow-up: "I need visualization tools" → "RNA-seq analysis and visualization tools for gene expression data"
+
+Create an improved query that combines the original intent with the user's feedback.
+Return ONLY the improved query (max 150 words).
+"""
+
+            response = await agent.gemini.ainvoke(prompt)
+            improved_query = response.content.strip()
+            
+            # Clean up the response
+            if improved_query.startswith('"') and improved_query.endswith('"'):
+                improved_query = improved_query[1:-1]
+            
+            print(f"🔄 Follow-up Query Improvement:")
+            print(f"   Original: {original_query}")
+            print(f"   Follow-up: {follow_up_question}")
+            print(f"   Improved: {improved_query}")
+            
+            return improved_query
+        else:
+            # Fallback: simple combination
+            return f"{original_query} {follow_up_question}"
+            
+    except Exception as e:
+        print(f"⚠️  Error creating improved query: {e}")
+        # Fallback: simple combination
+        return f"{original_query} {follow_up_question}"
 
 def format_enhanced_response(enhanced_text: str) -> Dict:
     """
@@ -144,10 +277,12 @@ def format_enhanced_response(enhanced_text: str) -> Dict:
         if not line:
             continue
             
-        # Check for section headers
-        if line.startswith("**Top") or line.startswith("**Notable Gaps:") or line.startswith("**Recommendations:") or line.startswith("**Overall Assessment:"):
+        # Check for section headers in the new detailed format
+        if line.startswith("**QUALITY ASSESSMENT:**") or line.startswith("**TOP RECOMMENDATIONS") or line.startswith("**DETAILED GAPS ANALYSIS:**") or line.startswith("**ACTIONABLE RECOMMENDATIONS:**") or line.startswith("**OVERALL ASSESSMENT:**"):
             current_section = "analysis"
-            analysis_parts.append(f"\n### {line.strip('*')}")
+            # Format as a proper header
+            header_text = line.strip('*').strip()
+            analysis_parts.append(f"\n### {header_text}")
             continue
             
         # Check for numbered lists
@@ -181,22 +316,24 @@ def format_enhanced_response(enhanced_text: str) -> Dict:
     return structured
 
 
-def format_response_for_web(result: Dict, query: str) -> Dict:
+def format_response_for_web(result: Dict, query: str, max_results: int) -> Dict:
     """Format the Self-RAG agent response for web display."""
     
-    # Extract tools from different sources
-    tools = []
+    # Organize tools by source type
+    local_tools = []
+    web_tools = []
+    scientific_papers = []
     
-    # Add ChromaDB tools (now with quality grades)
+    # Add ChromaDB tools (local database)
     for tool in result.get("chroma_tools", []):
         relevance_grade = tool.get("relevance_grade", "unknown")
         relevance_reasoning = tool.get("relevance_reasoning", "")
         
-        tools.append({
+        local_tools.append({
             "name": tool.get("name", "Unknown"),
             "category": tool.get("category", "Unknown"),
             "description": tool.get("content", "")[:200] + "...",
-            "source": "ChromaDB (Local Database)",
+            "source": "Local Database",
             "relevance_score": tool.get("relevance_score", 0),
             "type": "local_tool",
             "url": None,
@@ -206,7 +343,7 @@ def format_response_for_web(result: Dict, query: str) -> Dict:
     
     # Add web tools
     for tool in result.get("web_tools", []):
-        tools.append({
+        web_tools.append({
             "name": tool.get("name", "Unknown"),
             "category": "Web Tool",
             "description": tool.get("description", "")[:200] + "...",
@@ -220,11 +357,11 @@ def format_response_for_web(result: Dict, query: str) -> Dict:
     
     # Add scientific papers
     for paper in result.get("papers", []):
-        tools.append({
+        scientific_papers.append({
             "name": paper.get("title", "Unknown Paper"),
             "category": "Scientific Literature",
             "description": paper.get("abstract", "")[:200] + "...",
-            "source": "PubMed/Europe PMC",
+            "source": "Scientific Literature",
             "relevance_score": 0.7,  # Default score for papers
             "type": "scientific_paper",
             "url": paper.get("url"),
@@ -232,8 +369,18 @@ def format_response_for_web(result: Dict, query: str) -> Dict:
             "quality_reasoning": "Peer-reviewed scientific literature"
         })
     
-    # Sort tools by relevance score (Self-RAG may have reordered based on quality)
-    tools.sort(key=lambda x: x["relevance_score"], reverse=True)
+    # Sort each category by relevance score
+    local_tools.sort(key=lambda x: x["relevance_score"], reverse=True)
+    web_tools.sort(key=lambda x: x["relevance_score"], reverse=True)
+    scientific_papers.sort(key=lambda x: x["relevance_score"], reverse=True)
+    
+    # Limit each category to max_results
+    local_tools = local_tools[:max_results]
+    web_tools = web_tools[:max_results]
+    scientific_papers = scientific_papers[:max_results]
+    
+    # Combine all tools in the desired order: local first, then web, then papers
+    tools = local_tools + web_tools + scientific_papers
     
     # Create sources list
     sources = []
@@ -257,7 +404,19 @@ def format_response_for_web(result: Dict, query: str) -> Dict:
         })
     
     # Format the main response with Self-RAG insights
-    response_text = f"I found several tools and resources that might help with your query about '{query}'. "
+    response_text = f"I've analyzed your query about '{query}' and found {len(tools)} relevant tools and resources across different categories. "
+    
+    # Add specific counts for each category
+    category_counts = []
+    if local_tools:
+        category_counts.append(f"{len(local_tools)} database tools")
+    if web_tools:
+        category_counts.append(f"{len(web_tools)} web tools")
+    if scientific_papers:
+        category_counts.append(f"{len(scientific_papers)} scientific papers")
+    
+    if category_counts:
+        response_text += f"The results include {', '.join(category_counts)}. "
     
     # Add Self-RAG quality insights
     quality_metrics = result.get("quality_metrics", {})
@@ -270,7 +429,7 @@ def format_response_for_web(result: Dict, query: str) -> Dict:
             response_text += f"I performed {quality_metrics['iterations_used']} rounds of refinement to ensure quality. "
     
     if tools:
-        response_text += f"Here are the most relevant options I discovered:"
+        response_text += f"Below you'll find detailed analysis and specific recommendations for your research needs."
     else:
         response_text += "I couldn't find specific tools, but here's what I found in the scientific literature."
     
@@ -286,7 +445,14 @@ def format_response_for_web(result: Dict, query: str) -> Dict:
             
             # Structure the enhanced response
             structured_response = format_enhanced_response(enhanced_response)
-            response_text = structured_response["summary"]
+            
+            # Use structured summary if available, otherwise keep the original response_text
+            if structured_response["summary"].strip():
+                response_text = structured_response["summary"]
+            # If no summary was extracted, create a brief one from the analysis
+            else:
+                response_text = f"I've analyzed your query about '{query}' and found {len(tools)} relevant tools and resources. The detailed analysis below provides specific recommendations and insights for your research needs."
+            
             analysis = structured_response["detailed_analysis"]
     
     # Add Self-RAG quality summary to analysis
@@ -305,7 +471,7 @@ def format_response_for_web(result: Dict, query: str) -> Dict:
     return {
         "response": response_text,
         "analysis": analysis,
-        "tools": tools[:10],  # Limit to top 10
+        "tools": tools,
         "sources": sources
     }
 

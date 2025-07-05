@@ -41,6 +41,16 @@
                             <i class="fas fa-arrow-right"></i>
                         </button>
                     </div>
+                    <div class="search-options">
+                        <label for="resultsLimit" class="results-limit-label">
+                            <i class="fas fa-list-ol"></i>
+                            Results per section:
+                        </label>
+                        <select id="resultsLimit" class="results-limit-select">
+                            <option value="5">Top 5</option>
+                            <option value="10" selected>Top 10</option>
+                        </select>
+                    </div>
                 </form>
                 
                 <!-- Suggestions -->
@@ -70,6 +80,13 @@
         </footer>
     </div>
 
+    <script>
+        // Inline test to see if JavaScript is working
+        console.log('📄 HTML loaded, inline script test');
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('📄 DOM loaded, inline script');
+        });
+    </script>
     <script src="/static/js/app.js"></script>
 </body>
 </html> 
